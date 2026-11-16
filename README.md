@@ -94,7 +94,8 @@ builds with you.
 | `list_parts`, `list_colors` | Curated catalog, full LDraw library search, colour codes |
 | `add_parts`, `remove_parts`, `undo` | Place parts on the stud grid, with collision checks; `up`/`ldu` for turned parts |
 | `attach_parts` | Press a part onto any stud, in any direction (sideways building / SNOT) |
-| `part_info`, `list_studs` | A part's studs and receivers; a placed part's studs, directions and what is on them |
+| `attach_joint` | Connect parts by ball joint or hinge at any angle (posed modules) |
+| `part_info`, `list_studs`, `list_joints` | A part's studs, receivers and joints; a placed part's studs/joints and what is on them |
 | `fill_layers` | Colour layer maps packed automatically into bricks/plates/tiles in running bond |
 | `image_to_grid`, `build_mosaic` | Quantize pictures to LEGO colours; build mosaics |
 | `describe_model`, `check_model` | Per-level maps, part counts, floating/loose-part detection from real stud contact |
@@ -128,6 +129,24 @@ plane with room for a stud. Collisions for turned parts use each part's real
 shape, voxelized at 4 LDU. `check_model` counts a connection wherever a stud sits
 in a receiver facing the opposite way, in any direction.
 
+### Joints (posed models)
+
+Organic models are built as modules (arm, tail segment, shell panel) joined at angles
+that are not 90 degree steps:
+
+- **Ball joints (joint-8):** balls 14417, 22890, 3170 and 22484; sockets 14704,
+  14418, 63082 and 98263. The joints are read from the joint primitives in each
+  part's LDraw file. `attach_joint` puts the new part's ball in the socket (or the
+  socket on the ball): `bend` and `swing` tilt it up to 45 degrees combined, and
+  `twist` turns it about the joint's axis.
+- **Hinges:** 3937 (hinge base) with 6134 (hinge top). `bend` is the hinge angle.
+- **Building out from a joint:** `attach_parts` onto a tilted part follows its tilt,
+  so a whole module builds outward from its joint at that angle.
+- **Checks:** `check_model` counts joints as connections. It also reports any parts
+  whose real shapes pass into each other: points every 2 LDU inside each part are
+  tested against the other part's solid, in that part's own frame, with a 1 LDU
+  margin. So touching is fine, and tilted parts can't hide an overlap.
+
 ### Notes
 
 - Any LDraw part can be placed. Upright parts on the grid collide by grid cell
@@ -135,8 +154,9 @@ in a receiver facing the opposite way, in any direction.
   file always uses the real part.
 - `render_model` draws real part shapes by default; `detail="simple"` is faster
   and shows round parts and arches as boxes.
-- Only stud connections are modelled: ball joints, clips, hinges and Technic pins
-  are exported correctly but do not count as connections in `check_model`.
+- Connections modelled: studs in any direction, joint-8 ball joints and the 3937/6134
+  hinge. Clips, bars and Technic pins/axles are exported correctly but do not count as
+  connections in `check_model` yet.
 
 ## Very large builds
 

@@ -26,6 +26,19 @@ from . import ldraw
 
 VOXEL = 4.0  # LDU; 1 stud = 5 voxels, 1 plate = 2 voxels
 
+# Joint primitives: (kind) by file name. The primitive's origin is the joint centre and its
+# frame is the joint frame: a joint-8 ball sits at the origin with its stem along +Z; a
+# joint-8 socket cup is centred on the origin, opening toward -Z (its part is on +Z).
+_JOINT_PRIMS = {"joint8ball.dat": "ball", "joint8socket1.dat": "socket",
+                "joint8socket2.dat": "socket", "joint8socket3.dat": "socket"}
+# Joints LDraw has no primitive for: part -> [(kind, origin, frame columns X, Y, Z)].
+# Hinge 3937 + 6134: both pivot about the line along local X through (0, 10, 0).
+_JOINT_OVERRIDES = {
+    "3937": [("hinge_base", (0, 10, 0), np.eye(3))],
+    "6134": [("hinge_top", (0, 10, 0), np.eye(3))],
+}
+JOINT_PAIRS = {("ball", "socket"), ("socket", "ball"), ("hinge_base", "hinge_top"), ("hinge_top", "hinge_base")}
+
 # Primitives that are a stud you can press something onto (not underside tubes).
 _MALE = re.compile(r"(stud|stud-logo\d*|stud2|stud2-logo\d*|stud2a|stud6|stud6a|stud10|stud13|stud15|"
                    r"stud17|stud17a|stud26)\.dat")
@@ -45,6 +58,49 @@ class PartMesh:
 def _empty() -> tuple:
     return (np.zeros((0, 4, 3)), np.zeros(0, int), np.zeros((0, 2, 3)), np.zeros(0, int),
             np.zeros(0, bool), ())
+
+
+def _orthonormal(mat: np.ndarray) -> np.ndarray:
+    """Strip the scale from a primitive's matrix, keeping its axes."""
+    cols = []
+    for k in range(3):
+        c = mat[:, k]
+        n = np.linalg.norm(c)
+        cols.append(c / n if n else c)
+    return np.stack(cols, 1)
+
+
+@functools.lru_cache(maxsize=4096)
+def _joint_refs(name: str) -> tuple:
+    """Joint primitives inside one LDraw file: ((kind, origin (3,), frame (3,3)), ...)."""
+    name = name.strip().lower().replace("\\", "/")
+    base = name.rsplit("/", 1)[-1]
+    if base in _JOINT_PRIMS:
+        return ((_JOINT_PRIMS[base], np.zeros(3), np.eye(3)),)
+    if _MALE.fullmatch(base) or base.startswith(("stud", "box", "rect", "edge", "4-4", "1-", "2-", "3-")):
+        return ()
+    path = ldraw._find(name)
+    if path is None:
+        return ()
+    out = []
+    for line in open(path, encoding="utf-8", errors="ignore"):
+        t = line.split()
+        if len(t) >= 15 and t[0] == "1":
+            v = list(map(float, t[2:14]))
+            pos, mat = np.array(v[:3]), np.array(v[3:]).reshape(3, 3)
+            for kind, o, f in _joint_refs(" ".join(t[14:])):
+                out.append((kind, mat @ o + pos, _orthonormal(mat) @ f))
+    return tuple(out)
+
+
+@functools.lru_cache(maxsize=4096)
+def joints(part: str) -> tuple:
+    """Joints of a part in its local frame: ((kind, origin (3,), frame (3,3)), ...).
+    Kinds: ball, socket (joint-8 system), hinge_base, hinge_top (3937 / 6134)."""
+    pid = ldraw.normalize_part_id(part)
+    if pid in _JOINT_OVERRIDES:
+        return tuple((k, np.array(o, float), np.array(f, float)) for k, o, f in _JOINT_OVERRIDES[pid])
+    return _joint_refs(pid + ".dat")
 
 
 @functools.lru_cache(maxsize=4096)
@@ -176,6 +232,56 @@ def _sample_surface(tris: np.ndarray, spacing: float) -> np.ndarray:
 
 
 @functools.lru_cache(maxsize=4096)
+def _column_grid(part: str):
+    """Column hull as a lookup grid: (x0, z0, ytop[nx, nz], ybottom[nx, nz]) with NaN where
+    there is no material. Column (i, k) covers x0 + 4i .. x0 + 4i + 4 (and likewise z)."""
+    xs, zs, yt, yb = _columns(part)
+    if not len(xs):
+        return 0.0, 0.0, np.full((1, 1), np.nan), np.full((1, 1), np.nan)
+    x0, z0 = xs.min() - VOXEL / 2, zs.min() - VOXEL / 2
+    ix = np.round((xs - x0 - VOXEL / 2) / VOXEL).astype(int)
+    iz = np.round((zs - z0 - VOXEL / 2) / VOXEL).astype(int)
+    top = np.full((ix.max() + 1, iz.max() + 1), np.nan)
+    bot = np.full_like(top, np.nan)
+    top[ix, iz], bot[ix, iz] = yt, yb
+    return x0, z0, top, bot
+
+
+def contains(part: str, pts: np.ndarray, margin: float = 1.0) -> np.ndarray:
+    """Which local-frame points lie inside the part's solid by more than `margin` LDU
+    (points on or near a surface do not count, so parts that only touch never clash)."""
+    if not len(pts):
+        return np.zeros(0, bool)
+    x0, z0, top, bot = _column_grid(part)
+    nx, nz = top.shape
+    inside = np.ones(len(pts), bool)
+    lo_y = np.full(len(pts), -np.inf)
+    hi_y = np.full(len(pts), np.inf)
+    for dx in (-margin, margin):
+        for dz in (-margin, margin):
+            i = np.floor((pts[:, 0] + dx - x0) / VOXEL).astype(int)
+            k = np.floor((pts[:, 2] + dz - z0) / VOXEL).astype(int)
+            ok = (i >= 0) & (i < nx) & (k >= 0) & (k < nz)
+            t = np.full(len(pts), np.nan)
+            b = np.full(len(pts), np.nan)
+            t[ok], b[ok] = top[i[ok], k[ok]], bot[i[ok], k[ok]]
+            inside &= ~np.isnan(t)
+            lo_y = np.fmax(lo_y, t)
+            hi_y = np.fmin(hi_y, b)
+    return inside & (pts[:, 1] > lo_y + margin) & (pts[:, 1] < hi_y - margin)
+
+
+@functools.lru_cache(maxsize=4096)
+def samples(part: str) -> np.ndarray:
+    """Points filling the solid every 2 LDU (each 4 LDU voxel split in eight)."""
+    v = voxels(part)
+    if not len(v):
+        return v
+    offs = np.array([[dx, dy, dz] for dx in (-1, 1) for dy in (-1, 1) for dz in (-1, 1)], float)
+    return (v[:, None, :] + offs[None, :, :]).reshape(-1, 3)
+
+
+@functools.lru_cache(maxsize=4096)
 def voxels(part: str) -> np.ndarray:
     """(K, 3) centres of 4 LDU cubes filling the body (studs excluded), local frame."""
     xs, zs, yt, yb = _columns(part)
@@ -188,8 +294,26 @@ def voxels(part: str) -> np.ndarray:
     return np.array(out, float) if out else np.zeros((0, 3))
 
 
+# Parts whose LDraw underside is drawn as one continuous curve, leaving out the stud hole the
+# real part has under its high end: (x, z) of each receiver, at the part's bottom face.
+_RECEIVER_OVERRIDES = {
+    "24201": [(0, 20)],             # Slope Curved 2 x 1 Inverted
+    "32803": [(-10, 20), (10, 20)],  # Slope Curved 2 x 2 Inverted
+}
+
+
 @functools.lru_cache(maxsize=4096)
 def receivers(part: str) -> tuple:
+    pid = ldraw.normalize_part_id(part)
+    if pid in _RECEIVER_OVERRIDES:
+        y = float(ldraw.part_bounds(pid).y_bottom)
+        return tuple((np.array([float(x), y, float(z)]), np.array([0.0, 1.0, 0.0]))
+                     for x, z in _RECEIVER_OVERRIDES[pid])
+    return _derived_receivers(pid)
+
+
+@functools.lru_cache(maxsize=4096)
+def _derived_receivers(part: str) -> tuple:
     """Underside positions that accept a stud: ((pos (3,), dir (3,)), ...).
     dir is the way the opening faces (local +Y, down). One per stud-grid column of the
     footprint with a flat underside; ordered front-left first (by z, then x)."""

@@ -59,6 +59,18 @@ Sideways building (SNOT - studs not on top), for smooth, rounded sculpted shapes
   part by its grid corner, or ldu=[x, y, z] for an exact LDraw position.
 Collisions use each part's real shape and check_model counts real stud contact in every
 direction. render_model draws real part shapes by default.
+
+Joints, for posed, organic models (modules at any angle, not just 90 degree steps):
+- Ball joints (joint-8): balls 14417 (on a 1x2 plate's side), 22890 (on the end), 3170
+  (both ends), 22484 (bar); sockets 14704 (1x2 plate, centre), 14418 (end), 63082, 98263.
+- Hinges: 3937 (hinge base 1x2) + 6134 (hinge top 2x2), any angle.
+- list_joints(id) lists a placed part's joints and what is connected to each.
+- attach_joint connects a new part's joint to a placed part's joint. For a ball joint,
+  bend / swing tilt it (up to 45 degrees combined) and twist turns it about its axis;
+  for a hinge, bend is the hinge angle. Parts attached to a tilted part follow its tilt,
+  so build a module (arm, tail segment, panel) outward from its joint.
+- check_model also lists parts whose real shapes interpenetrate, so tilted modules never
+  pass through each other unnoticed.
 """
 
 mcp = MCPServer("brickbuilder", instructions=INSTRUCTIONS)
@@ -124,6 +136,17 @@ class AttachSpec(BaseModel):
     stud: int = Field(description="Stud index on to_id (see list_studs)")
     receiver: int = Field(0, description="Which receiver of the new part goes on that stud (see part_info)")
     rot: int | str = Field(0, description="Spin about the stud direction: 0/90/180/270")
+
+
+class JointSpec(BaseModel):
+    part: str = Field(description="LDraw part id of the new part (it must have a ball, socket or hinge)")
+    color: int | str
+    to_id: int = Field(description="Placed part whose joint the new part connects to")
+    to_joint: int = Field(0, description="Joint index on to_id (see list_joints)")
+    joint: int = Field(0, description="Which joint of the new part (see part_info)")
+    bend: float = Field(0, description="Degrees. Ball joint: tilt about the joint's X axis. Hinge: hinge angle")
+    swing: float = Field(0, description="Degrees, ball joint only: tilt about the joint's Y axis")
+    twist: float = Field(0, description="Degrees, ball joint only: turn about the joint's axis")
 
 
 class Region(BaseModel):
@@ -253,7 +276,7 @@ def attach_parts(parts: list[AttachSpec]) -> str:
     for spec in parts:
         try:
             p = m.attach(spec.part, spec.color, spec.to_id, spec.stud, spec.receiver, spec.rot)
-            ok.append(f"#{p.id} {p.part} facing {p.up}")
+            ok.append(f"#{p.id} {p.part} " + ("tilted (follows its base)" if p.matrix is not None else f"facing {p.up}"))
         except (BuildError, ldraw.LDrawError) as e:
             errors.append(f"{spec.part} on #{spec.to_id} stud {spec.stud}: {e}")
     _save(m)
@@ -278,9 +301,58 @@ def list_studs(id: int, free_only: bool = False) -> str:
         if free_only and who is not None:
             continue
         where = f"x={pos[0] / 20 + 0:g} y={-pos[1] / 8 + 0:g} z={pos[2] / 20 + 0:g}"
-        lines.append(f"  stud {i:2}: points {direction_name(d):5}  at {where}" +
+        lines.append(f"  stud {i:2}: points {direction_name(d, strict=False):5}  at {where}" +
                      (f"  <- #{who} {m.parts[who].part}" if who is not None else "  free"))
     return "\n".join(lines) if len(lines) > 1 else lines[0] + " no studs"
+
+
+@mcp.tool()
+def attach_joint(parts: list[JointSpec]) -> str:
+    """Connect parts by ball joints or hinges, at any angle. Each new part's joint `joint`
+    goes onto joint `to_joint` of placed part `to_id` (ball into socket, socket onto ball,
+    hinge top 6134 onto hinge base 3937). Ball joints: bend and swing tilt the new part up
+    to 45 degrees combined, twist turns it about the joint axis. Hinges: bend is the angle.
+    Then attach_parts onto the tilted part to build the module outward; everything on it
+    follows the tilt. Collisions are checked against real part shapes."""
+    m = _model()
+    if len(parts) > MAX_PARTS_PER_CALL:
+        raise BuildError(f"attach_joint is limited to {MAX_PARTS_PER_CALL} parts per call")
+    m.checkpoint()
+    ok, errors = [], []
+    for spec in parts:
+        try:
+            p = m.attach_joint(spec.part, spec.color, spec.to_id, spec.to_joint, spec.joint,
+                               spec.bend, spec.swing, spec.twist)
+            ok.append(f"#{p.id} {p.part}")
+        except (BuildError, ldraw.LDrawError) as e:
+            errors.append(f"{spec.part} on #{spec.to_id} joint {spec.to_joint}: {e}")
+    _save(m)
+    msg = ("Connected:\n- " + "\n- ".join(ok)) if ok else "Connected nothing."
+    if errors:
+        msg += "\nErrors:\n- " + "\n- ".join(errors)
+    return msg
+
+
+@mcp.tool()
+def list_joints(id: int) -> str:
+    """List a placed part's joints (balls, sockets, hinges): index (for attach_joint), kind,
+    position (x, z in studs, y in plates), the direction its axis points and what is
+    connected to it."""
+    from .model import direction_name
+    m = _model()
+    if id not in m.parts:
+        raise BuildError(f"No part #{id}")
+    js = m.geometry(id).joints()
+    if not js:
+        return f"#{id} {m.parts[id].part} has no joints"
+    used = m.joint_usage(id)
+    lines = [f"#{id} {m.parts[id].part} ({ldraw.part_title(m.parts[id].part)}):"]
+    for i, ((kind, c, f), who) in enumerate(zip(js, used)):
+        axis = f[:, 0] if kind.startswith("hinge") else f[:, 2]
+        where = f"x={c[0] / 20 + 0:.2f} y={-c[1] / 8 + 0:.2f} z={c[2] / 20 + 0:.2f}"
+        lines.append(f"  joint {i}: {kind:10} at {where}  axis {direction_name(axis, strict=False)}" +
+                     (f"  <- #{who} {m.parts[who].part}" if who is not None else "  free"))
+    return "\n".join(lines)
 
 
 @mcp.tool()
@@ -304,6 +376,11 @@ def part_info(part: str) -> str:
             lines.append(f"  {i:2}: x={pos[0] / 20 + 0:g} z={pos[2] / 20 + 0:g} y={-pos[1] / 8 + 0:g}")
     else:
         lines.append("receivers: none (cannot be pressed onto a stud)")
+    js = geometry.joints(pid)
+    if js:
+        lines.append("joints (index: kind, x, z in studs, height in plates):")
+        for i, (kind, o, f) in enumerate(js):
+            lines.append(f"  {i:2}: {kind} at x={o[0] / 20 + 0:g} z={o[2] / 20 + 0:g} y={-o[1] / 8 + 0:g}")
     return "\n".join(lines)
 
 
@@ -434,15 +511,18 @@ def describe_model(levels: list[int] | None = None, all_levels: bool = False, li
     if list_all_parts:
         out.append("placements (id part color x y z rot [up] [ldu]):")
         out += [f"  {p.id} {p.part} {p.color} {p.x} {p.y} {p.z} {p.rot}" +
-                (f" up={p.up}" if p.up != "up" else "") + (f" ldu={p.ldu}" if p.ldu is not None else "")
+                (f" up={p.up}" if p.up != "up" else "") + (f" ldu={p.ldu}" if p.ldu is not None else "") +
+                (" tilted" if p.matrix is not None else "")
                 for p in m.parts.values()]
     return "\n".join(out)
 
 
 @mcp.tool()
 def check_model() -> str:
-    """Check structure: floating groups (not connected to anything touching the ground)
-    and loose groups (standing on the ground but not attached to the main body)."""
+    """Check structure: floating groups (not connected to anything touching the ground),
+    loose groups (standing on the ground but not attached to the main body), and parts whose
+    real shapes pass into each other. Connections count studs in any direction, ball joints
+    and hinges."""
     m = _model()
     r = m.check()
     lines = [f"{r['parts']} parts in {r['connected_groups']} stud-connected group(s); largest: {r['group_sizes']}"]
@@ -452,6 +532,11 @@ def check_model() -> str:
         lines.append(f"loose group on the ground ({len(g)} part(s)): ids {_ranges(g)}")
     if not r["floating_groups"] and not r["loose_grounded_groups"]:
         lines.append("OK: everything is connected.")
+    clashes = m.overlaps()
+    for i, j, n in clashes:
+        lines.append(f"OVERLAP: #{i} {m.parts[i].part} and #{j} {m.parts[j].part} pass into each other ({n} sample points)")
+    if not clashes:
+        lines.append("OK: no parts pass into each other.")
     return "\n".join(lines)
 
 

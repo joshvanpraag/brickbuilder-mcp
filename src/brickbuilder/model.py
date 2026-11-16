@@ -45,6 +45,7 @@ _UP_MATRIX = {
     "left": np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]], dtype=float),
 }
 CLASH_VOXELS = 2  # tolerated shared 4 LDU voxels (curved surfaces that only touch)
+CLASH_POINTS = 2  # 2 LDU sample points allowed inside another part (curved faces that touch)
 
 
 def parse_up(up: str | None) -> str:
@@ -60,10 +61,13 @@ def orientation(up: str, rot: int) -> np.ndarray:
     return _UP_MATRIX[parse_up(up)] @ rot_matrix(rot)
 
 
-def direction_name(d: np.ndarray) -> str:
+def direction_name(d: np.ndarray, strict: bool = True) -> str:
     for name, v in DIRECTIONS.items():
         if np.dot(d, v) > 0.99:
             return name
+    if not strict:
+        best = max(DIRECTIONS, key=lambda k: float(np.dot(d, DIRECTIONS[k])))
+        return f"mostly {best}"
     raise BuildError(f"stud direction {np.round(d, 3).tolist()} is not along an axis")
 
 
@@ -106,10 +110,11 @@ class Placement:
     rot: int = 0
     up: str = "up"                     # world direction the part's top faces
     ldu: list[float] | None = None     # exact LDraw origin position (free placement)
+    matrix: list[float] | None = None  # full rotation (row-major 3x3), for parts on joints
 
     @property
     def free(self) -> bool:
-        return self.up != "up" or self.ldu is not None
+        return self.up != "up" or self.ldu is not None or self.matrix is not None
 
 
 @dataclass
@@ -152,9 +157,27 @@ class Geometry:
     def receivers(self) -> list[tuple[np.ndarray, np.ndarray]]:
         return [(self.matrix @ p + self.pos, self.matrix @ d) for p, d in geometry.receivers(self.part)]
 
+    def joints(self) -> list[tuple[str, np.ndarray, np.ndarray]]:
+        """(kind, world centre, world frame) for each ball / socket / hinge."""
+        return [(k, self.matrix @ o + self.pos, self.matrix @ f) for k, o, f in geometry.joints(self.part)]
+
+    @property
+    def axis_aligned(self) -> bool:
+        return bool(np.all(np.isclose(np.abs(self.matrix), np.round(np.abs(self.matrix)), atol=1e-6)))
+
+
+def _rot(axis: str, deg: float) -> np.ndarray:
+    t = math.radians(deg)
+    c, s = math.cos(t), math.sin(t)
+    if axis == "x":
+        return np.array([[1, 0, 0], [0, c, -s], [0, s, c]])
+    if axis == "y":
+        return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]])
+    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
+
 
 def _free_geometry(p: Placement, pid: str, shape: catalog.Shape) -> Geometry:
-    m = orientation(p.up, p.rot)
+    m = np.array(p.matrix, float).reshape(3, 3) if p.matrix is not None else orientation(p.up, p.rot)
     local = geometry.voxels(pid)
     if not len(local):
         raise BuildError(f"{pid} has no solid geometry to place")
@@ -257,31 +280,43 @@ class Model:
     def geometry(self, pid: int) -> Geometry:
         return self._geom[pid]
 
-    def _shape_clashes(self, g: Geometry, only_free: bool) -> list[int]:
-        """Parts whose real shape overlaps g's (more than CLASH_VOXELS shared voxels)."""
+    def _shape_clashes(self, g: Geometry, only_free: bool, ignore: set[int] | None = None) -> list[int]:
+        """Parts whose real shape overlaps g's. Points filling each part every 2 LDU are
+        tested against the other part's solid (in its own frame) with a 1 LDU margin, both
+        ways round, so touching is fine and any real interpenetration is caught - also for
+        tilted parts on joints."""
         lo, hi = g.aabb()
+        mine = geometry.samples(g.part) @ g.matrix.T + g.pos
         hits = []
         for i, other in self._geom.items():
-            if only_free and not other.free:
+            if (only_free and not other.free) or (ignore and i in ignore):
                 continue
             olo, ohi = other.aabb()
             if np.any(olo >= hi - 0.5) or np.any(ohi <= lo + 0.5):
                 continue
-            if len(g.voxels() & other.voxels()) > CLASH_VOXELS:
+            theirs = geometry.samples(other.part) @ other.matrix.T + other.pos
+            if _penetration(mine, other) + _penetration(theirs, g) > CLASH_POINTS:
                 hits.append(i)
         return hits
 
     def add(self, part: str, color: int | str, x: int, y: int, z: int, rot: int | str | None = 0,
-            up: str | None = "up", ldu: list[float] | None = None) -> Placement:
+            up: str | None = "up", ldu: list[float] | None = None, matrix=None,
+            ignore: set[int] | None = None) -> Placement:
+        """Place a part. Upright parts go on the grid by (x, y, z, rot); turned parts take `up`;
+        `ldu` gives an exact LDraw position and `matrix` (3x3) any rotation. Parts in `ignore`
+        are not checked for collision (a joint partner, whose ball sits inside the socket)."""
         pid, _, _ = catalog.lookup(part)
         colour = ldraw.resolve_colour(color)
+        mat = None if matrix is None else [round(float(v), 9) for v in np.asarray(matrix, float).ravel()]
         p = Placement(self.next_id, pid, colour.code, int(x), int(y), int(z), parse_rot(rot), parse_up(up),
-                      None if ldu is None else [float(v) for v in ldu])
+                      None if ldu is None else [float(v) for v in ldu], mat)
         g = compute_geometry(p)
-        where = (f"ldu={_fmt_vec(p.ldu)} up={p.up} rot={p.rot}" if p.ldu is not None
-                 else f"x={x} y={y} z={z} rot={p.rot}" + ("" if p.up == "up" else f" up={p.up}"))
+        if p.ldu is not None:
+            where = f"ldu={_fmt_vec(p.ldu)} " + ("tilted" if mat is not None else f"up={p.up} rot={p.rot}")
+        else:
+            where = f"x={x} y={y} z={z} rot={p.rot}" + ("" if p.up == "up" else f" up={p.up}")
         if g.free:
-            clashes = self._shape_clashes(g, only_free=False)
+            clashes = self._shape_clashes(g, only_free=False, ignore=ignore)
             if g.aabb()[1][1] > 0.5:
                 raise BuildError(f"{pid} at {where} would go below the ground")
         else:
@@ -301,10 +336,12 @@ class Model:
                rot: int | str | None = 0) -> Placement:
         """Press one of the new part's receivers (underside stud holes) onto stud number
         `stud` of placed part `to_id`. The new part's top then faces the way that stud
-        points; `rot` spins it about that direction."""
+        points; `rot` spins it about that direction. Works on tilted parts too (parts on
+        joints): the new part then follows the target's tilt."""
         if to_id not in self.parts:
             raise BuildError(f"No part #{to_id}")
-        target = self._geom[to_id].studs()
+        tg = self._geom[to_id]
+        target = tg.studs()
         if not 0 <= stud < len(target):
             raise BuildError(f"#{to_id} {self.parts[to_id].part} has {len(target)} studs (0..{len(target) - 1}), not {stud}")
         pid, _, _ = catalog.lookup(part)
@@ -314,10 +351,48 @@ class Model:
         if not 0 <= receiver < len(recv):
             raise BuildError(f"{pid} has {len(recv)} receivers (0..{len(recv) - 1}), not {receiver}")
         spos, sdir = target[stud]
-        up = direction_name(sdir)
         r = parse_rot(rot)
-        pos = spos - orientation(up, r) @ recv[receiver][0]
-        return self.add(pid, color, 0, 0, 0, r, up, [round(float(v), 3) for v in pos])
+        if tg.axis_aligned:
+            up = direction_name(sdir)
+            pos = spos - orientation(up, r) @ recv[receiver][0]
+            return self.add(pid, color, 0, 0, 0, r, up, [round(float(v), 3) for v in pos])
+        # tilted target: work in its own frame, where its studs are axis-aligned
+        local_dir = geometry.studs(self.parts[to_id].part)[stud][1]
+        m = tg.matrix @ orientation(direction_name(local_dir), r)
+        pos = spos - m @ recv[receiver][0]
+        return self.add(pid, color, 0, 0, 0, r, "up", [float(v) for v in pos], matrix=m)
+
+    def attach_joint(self, part: str, color: int | str, to_id: int, to_joint: int = 0, joint: int = 0,
+                     bend: float = 0, swing: float = 0, twist: float = 0) -> Placement:
+        """Connect the new part's joint `joint` to joint `to_joint` of placed part `to_id`:
+        a ball into a socket (or the other way round), or a hinge top onto a hinge base.
+        Angles are in degrees, in the target joint's frame. Ball joint: `bend` and `swing`
+        tilt the new part away from straight (about the joint's X and Y axes, at most 45
+        degrees combined) and `twist` turns it about the joint's axis. Hinge: `bend` is the
+        hinge angle (any value)."""
+        if to_id not in self.parts:
+            raise BuildError(f"No part #{to_id}")
+        tj = self._geom[to_id].joints()
+        if not 0 <= to_joint < len(tj):
+            raise BuildError(f"#{to_id} {self.parts[to_id].part} has {len(tj)} joints (0..{len(tj) - 1}), not {to_joint}")
+        pid, _, _ = catalog.lookup(part)
+        nj = geometry.joints(pid)
+        if not 0 <= joint < len(nj):
+            raise BuildError(f"{pid} has {len(nj)} joints (0..{len(nj) - 1}), not {joint}")
+        tkind, centre, frame = tj[to_joint]
+        nkind, origin, nframe = nj[joint]
+        if (tkind, nkind) not in geometry.JOINT_PAIRS:
+            raise BuildError(f"a {nkind} does not connect to a {tkind}")
+        if tkind in ("ball", "socket"):
+            user = _rot("x", bend) @ _rot("y", swing) @ _rot("z", twist)
+            tilt = math.degrees(math.acos(max(-1.0, min(1.0, user[2, 2]))))
+            if tilt > 45.5:
+                raise BuildError(f"a joint-8 ball joint tilts about 45 degrees at most; bend/swing give {tilt:.0f}")
+            m = frame @ user @ np.diag([-1.0, 1.0, -1.0]) @ nframe.T  # stems opposite, tops the same way up
+        else:
+            m = frame @ _rot("x", bend) @ nframe.T
+        pos = centre - m @ origin
+        return self.add(pid, color, 0, 0, 0, 0, "up", [float(v) for v in pos], matrix=m, ignore={to_id})
 
     def remove(self, ids: list[int]) -> list[int]:
         removed = []
@@ -370,7 +445,40 @@ class Model:
                     if j != i and float(np.dot(d, rd)) < -0.9:
                         adj[i].add(j)
                         adj[j].add(i)
+        for i, j in self._joint_links():
+            adj[i].add(j)
+            adj[j].add(i)
         return adj
+
+    @staticmethod
+    def _joints_mate(k1, c1, f1, k2, c2, f2) -> bool:
+        if (k1, k2) not in geometry.JOINT_PAIRS or np.linalg.norm(c1 - c2) > 1.0:
+            return False
+        return not k1.startswith("hinge") or abs(float(np.dot(f1[:, 0], f2[:, 0]))) >= 0.99
+
+    def _joint_links(self) -> list[tuple[int, int]]:
+        """Pairs of parts joined by a ball joint or a hinge (centres together; hinge axes
+        parallel)."""
+        js = [(i, k, c, f) for i, g in self._geom.items() for k, c, f in g.joints()]
+        links = []
+        for a in range(len(js)):
+            i, k1, c1, f1 = js[a]
+            for b in range(a + 1, len(js)):
+                j, k2, c2, f2 = js[b]
+                if i != j and self._joints_mate(k1, c1, f1, k2, c2, f2):
+                    links.append((i, j))
+        return links
+
+    def joint_usage(self, pid: int) -> list[int | None]:
+        """For each joint of part pid: the id of the part joined to it, or None."""
+        out = []
+        for k, c, f in self._geom[pid].joints():
+            hit = None
+            for j, g in self._geom.items():
+                if j != pid and any(self._joints_mate(k, c, f, k2, c2, f2) for k2, c2, f2 in g.joints()):
+                    hit = j
+            out.append(hit)
+        return out
 
     def stud_usage(self, pid: int) -> list[int | None]:
         """For each stud of part pid: the id of the part plugged onto it, or None."""
@@ -384,6 +492,42 @@ class Model:
         for pos, d in self._geom[pid].studs():
             hit = next((j for j, rd in holes.get(_key(pos), ()) if float(np.dot(d, rd)) < -0.9), None)
             out.append(hit)
+        return out
+
+    def overlaps(self, limit: int = 50) -> list[tuple[int, int, int]]:
+        """Pairs of parts whose real shapes interpenetrate: (id, id, sample points inside).
+        Joint partners (a ball inside its socket) are expected to overlap and are skipped."""
+        joined = {tuple(sorted(p)) for p in self._joint_links()}
+        buckets: dict[tuple[int, int, int], list[int]] = {}
+        for i, g in self._geom.items():
+            lo, hi = g.aabb()
+            a, b = np.floor(lo / 80).astype(int), np.floor(hi / 80).astype(int)
+            for bx in range(a[0], b[0] + 1):
+                for by in range(a[1], b[1] + 1):
+                    for bz in range(a[2], b[2] + 1):
+                        buckets.setdefault((bx, by, bz), []).append(i)
+        seen, out = set(), []
+        pts = {}
+        for ids in buckets.values():
+            for x in range(len(ids)):
+                for y in range(x + 1, len(ids)):
+                    i, j = sorted((ids[x], ids[y]))
+                    if (i, j) in seen or (i, j) in joined:
+                        continue
+                    seen.add((i, j))
+                    gi, gj = self._geom[i], self._geom[j]
+                    lo1, hi1 = gi.aabb()
+                    lo2, hi2 = gj.aabb()
+                    if np.any(lo1 >= hi2 - 0.5) or np.any(lo2 >= hi1 - 0.5):
+                        continue
+                    for k, g in ((i, gi), (j, gj)):
+                        if k not in pts:
+                            pts[k] = geometry.samples(g.part) @ g.matrix.T + g.pos
+                    n = _penetration(pts[i], gj) + _penetration(pts[j], gi)
+                    if n > CLASH_POINTS:
+                        out.append((i, j, n))
+                        if len(out) >= limit:
+                            return out
         return out
 
     def grounded(self, pid: int) -> bool:
@@ -492,6 +636,16 @@ def legacy_part_id(pid: str) -> str:
 def _fmt(v: float) -> str:
     v = round(float(v), 3)
     return str(int(v)) if v == int(v) else f"{v:g}"
+
+
+def _penetration(world_pts: np.ndarray, g: Geometry) -> int:
+    """How many world points lie inside g's solid (more than 1 LDU in)."""
+    lo, hi = g.aabb()
+    sel = np.all((world_pts > lo - 1) & (world_pts < hi + 1), axis=1)
+    if not sel.any():
+        return 0
+    local = (world_pts[sel] - g.pos) @ g.matrix   # inverse of a rotation is its transpose
+    return int(geometry.contains(g.part, local).sum())
 
 
 def _fmt_vec(v) -> str:
