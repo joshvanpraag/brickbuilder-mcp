@@ -205,24 +205,162 @@ def real_scene(model: Model):
     """Every part's actual LDraw polygons and edge lines in render space (+Y up)."""
     from . import geometry
     flip = np.array([1.0, -1.0, 1.0])
-    P, PC, L, LC = [], [], [], []
+    P, PC, L, LC, PI = [], [], [], [], []
     for pid, p in model.parts.items():
         g = model.geometry(pid)
         mesh = geometry.load(p.part)
         if len(mesh.polys):
             P.append((mesh.polys @ g.matrix.T + g.pos) * flip)
             PC.append(np.where(mesh.poly_colours == 16, p.color, mesh.poly_colours))
+            PI.append(np.full(len(mesh.polys), pid))
         if len(mesh.lines):
             L.append((mesh.lines @ g.matrix.T + g.pos) * flip)
             LC.append(np.where(mesh.line_colours == 16, p.color, mesh.line_colours))
     cat = lambda xs, shape: np.concatenate(xs) if xs else np.zeros(shape)
-    return (cat(P, (0, 4, 3)), cat(PC, (0,)).astype(int), cat(L, (0, 2, 3)), cat(LC, (0,)).astype(int))
+    return (cat(P, (0, 4, 3)), cat(PC, (0,)).astype(int), cat(L, (0, 2, 3)), cat(LC, (0,)).astype(int),
+            cat(PI, (0,)).astype(int))
+
+
+def _raster(px: np.ndarray, py: np.ndarray, pz: np.ndarray, W: int, H: int, zbuf: np.ndarray,
+            write=None) -> None:
+    """Rasterise triangles (N, 3) of pixel coords / depths into zbuf (flattened, larger depth =
+    nearer). Vectorised scanline: for every triangle and pixel row, the covered x-span is
+    computed from its edges, and only those pixels are generated (no wasted bounding-box
+    samples on long thin triangles). Without `write`, keeps the nearest depth per pixel; with
+    `write(pix, tri)`, calls it for the samples that are the nearest surface (second pass)."""
+    area = (px[:, 1] - px[:, 0]) * (py[:, 2] - py[:, 0]) - (px[:, 2] - px[:, 0]) * (py[:, 1] - py[:, 0])
+    ok = (np.abs(area) > 1e-9) & (px.max(1) >= 0) & (px.min(1) < W) & (py.max(1) >= 0) & (py.min(1) < H)
+    idx_all = np.nonzero(ok)[0]
+    # depth as a plane over the screen: z = za * x + zb * y + zc
+    ax, ay, az_ = px[:, 0], py[:, 0], pz[:, 0]
+    bx, by, bz = px[:, 1] - ax, py[:, 1] - ay, pz[:, 1] - az_
+    cx_, cy_, cz = px[:, 2] - ax, py[:, 2] - ay, pz[:, 2] - az_
+    with np.errstate(divide="ignore", invalid="ignore"):
+        za = (bz * cy_ - cz * by) / area
+        zb = (cz * bx - bz * cx_) / area
+        zc = az_ - za * ax - zb * ay
+    r0 = np.clip(np.ceil(py.min(1) - 0.5), 0, H - 1).astype(int)
+    r1 = np.clip(np.floor(py.max(1) - 0.5), 0, H - 1).astype(int)
+    rows_per = np.maximum(r1 - r0 + 1, 0)
+    # process in chunks of triangles so the expanded arrays stay a manageable size
+    order = idx_all
+    cum = np.cumsum(rows_per[order])
+    start = 0
+    while start < len(order):
+        stop = int(np.searchsorted(cum, (cum[start - 1] if start else 0) + 2_000_000, side="right"))
+        stop = max(stop, start + 1)
+        idx = order[start:stop]
+        start = stop
+        n = rows_per[idx]
+        if not n.sum():
+            continue
+        tri = np.repeat(idx, n)
+        yrow = np.repeat(r0[idx], n) + (np.arange(n.sum()) - np.repeat(np.cumsum(n) - n, n))
+        yc = yrow + 0.5
+        lo = np.full(len(tri), np.inf)
+        hi = np.full(len(tri), -np.inf)
+        for e0, e1 in ((0, 1), (1, 2), (2, 0)):
+            x0, y0 = px[tri, e0], py[tri, e0]
+            x1, y1 = px[tri, e1], py[tri, e1]
+            crosses = (np.minimum(y0, y1) <= yc) & (np.maximum(y0, y1) >= yc) & (y0 != y1)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                xe = x0 + (yc - y0) * (x1 - x0) / (y1 - y0)
+            lo = np.where(crosses, np.minimum(lo, xe), lo)
+            hi = np.where(crosses, np.maximum(hi, xe), hi)
+        c0 = np.clip(np.ceil(lo - 0.5), 0, W).astype(np.int64, copy=False)
+        c1 = np.clip(np.floor(hi - 0.5), -1, W - 1).astype(np.int64, copy=False)
+        cnt = np.where(np.isfinite(lo) & np.isfinite(hi), np.maximum(c1 - c0 + 1, 0), 0)
+        if not cnt.sum():
+            continue
+        t2 = np.repeat(tri, cnt)
+        y2 = np.repeat(yrow, cnt)
+        x2 = np.repeat(c0, cnt) + (np.arange(cnt.sum()) - np.repeat(np.cumsum(cnt) - cnt, cnt))
+        zz = za[t2] * (x2 + 0.5) + zb[t2] * (y2 + 0.5) + zc[t2]
+        pix = y2 * W + x2
+        if write is None:
+            np.maximum.at(zbuf, pix, zz)
+        else:
+            front = zz >= zbuf[pix] - 1e-6
+            write(pix[front], t2[front])
 
 
 def render_real_view(scene, az: float, el: float, width: int, height: int, ss: int = 2) -> Image.Image:
-    """Painter's-algorithm render of real part shapes with LDraw edge lines."""
+    """Depth-buffered render of real part shapes: every pixel shows the nearest surface, so
+    parts never appear to pass through each other. Part outlines where parts meet, plus the
+    parts' own LDraw edge lines where they are visible."""
     from . import geometry
-    P, PC, L, LC = scene
+    P, PC, L, LC, PI = scene
+    W, H = width * ss, height * ss
+    if not len(P):
+        return Image.new("RGB", (width, height), tuple(int(c) for c in BACKGROUND))
+    r, u, v = _camera(az, el)
+    tris = np.concatenate([P[:, [0, 1, 2]], P[:, [0, 2, 3]]])
+    cols = np.concatenate([PC, PC])
+    pids = np.concatenate([PI, PI])
+    sx, sy, sd = tris @ r, tris @ u, tris @ v
+    allx, ally = np.concatenate([sx.ravel(), (L @ r).ravel()]), np.concatenate([sy.ravel(), (L @ u).ravel()])
+    margin = 0.06
+    span = max(allx.max() - allx.min(), 1e-6), max(ally.max() - ally.min(), 1e-6)
+    scale = min(W * (1 - 2 * margin) / span[0], H * (1 - 2 * margin) / span[1])
+    cx, cy = (allx.max() + allx.min()) / 2, (ally.max() + ally.min()) / 2
+    px, py = (sx - cx) * scale + W / 2, H / 2 - (sy - cy) * scale
+
+    normals = np.cross(tris[:, 1] - tris[:, 0], tris[:, 2] - tris[:, 0])
+    n = np.linalg.norm(normals, axis=1)
+    n[n == 0] = 1
+    normals = normals / n[:, None]
+    facing = np.where((normals @ v)[:, None] < 0, -normals, normals)  # two-sided
+    shade = 0.42 + 0.48 * np.clip(facing @ LIGHT, 0, 1) + 0.18 * np.clip(facing @ v, 0, 1)
+    table = ldraw.colours()
+    codes, inverse = np.unique(cols, return_inverse=True)
+    pal = np.array([table[int(c)].rgb if int(c) in table else (200, 200, 200) for c in codes], float)
+    tri_rgb = np.clip(pal[inverse] * shade[:, None], 0, 255)
+
+    zbuf = np.full(W * H, -np.inf)
+    _raster(px, py, sd, W, H, zbuf)
+    img = np.tile(BACKGROUND, (W * H, 1))
+    idbuf = np.full(W * H, -1, dtype=np.int64)
+
+    def write(pix, tri):
+        img[pix] = tri_rgb[tri]
+        idbuf[pix] = pids[tri]
+    _raster(px, py, sd, W, H, zbuf, write)
+
+    # outlines where one part meets another (or the background)
+    ids = idbuf.reshape(H, W)
+    edge = np.zeros((H, W), bool)
+    edge[:, :-1] |= ids[:, :-1] != ids[:, 1:]
+    edge[:-1, :] |= ids[:-1, :] != ids[1:, :]
+    img = img.reshape(H, W, 3)
+    img[edge] = img[edge] * 0.35 + np.array([20, 20, 25]) * 0.65
+    # the parts' own edge lines, only where nothing is in front of them
+    if len(L):
+        lx, ly, ld = (L @ r - cx) * scale + W / 2, H / 2 - (L @ u - cy) * scale, L @ v
+        length = np.hypot(lx[:, 1] - lx[:, 0], ly[:, 1] - ly[:, 0])
+        keep = length >= 1.5
+        lx, ly, ld, length = lx[keep], ly[keep], ld[keep], length[keep]
+        steps = np.ceil(length).astype(int) + 1
+        seg = np.repeat(np.arange(len(steps)), steps)
+        k = np.arange(steps.sum()) - np.repeat(np.cumsum(steps) - steps, steps)
+        t = k / np.maximum(np.repeat(steps, steps) - 1, 1)
+        qx = lx[seg, 0] + t * (lx[seg, 1] - lx[seg, 0])
+        qy = ly[seg, 0] + t * (ly[seg, 1] - ly[seg, 0])
+        qz = ld[seg, 0] + t * (ld[seg, 1] - ld[seg, 0])
+        ix, iy = np.floor(qx).astype(int), np.floor(qy).astype(int)
+        inb = (ix >= 0) & (ix < W) & (iy >= 0) & (iy < H)
+        pix = iy[inb] * W + ix[inb]
+        vis = qz[inb] >= zbuf[pix] - 1.5
+        flat = img.reshape(-1, 3)
+        flat[pix[vis]] = flat[pix[vis]] * 0.45 + np.array([25, 25, 30]) * 0.55
+    out = Image.fromarray(np.clip(img, 0, 255).astype(np.uint8))
+    return out.resize((width, height), Image.Resampling.LANCZOS) if ss > 1 else out
+
+
+def render_real_view_painter(scene, az: float, el: float, width: int, height: int, ss: int = 2) -> Image.Image:
+    """Painter's-algorithm render of real part shapes with LDraw edge lines (kept for
+    comparison; large faces can be drawn over nearer ones)."""
+    from . import geometry
+    P, PC, L, LC, _ = scene
     W, H = width * ss, height * ss
     img = Image.new("RGB", (W, H), tuple(int(c) for c in BACKGROUND))
     if not len(P):
