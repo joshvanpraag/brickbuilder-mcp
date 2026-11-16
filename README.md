@@ -92,11 +92,13 @@ builds with you.
 |---|---|
 | `new_model` / `open_model` / `list_models` | Models autosave to `models/*.json` |
 | `list_parts`, `list_colors` | Curated catalog, full LDraw library search, colour codes |
-| `add_parts`, `remove_parts`, `undo` | Place parts on the stud grid, with collision checks |
+| `add_parts`, `remove_parts`, `undo` | Place parts on the stud grid, with collision checks; `up`/`ldu` for turned parts |
+| `attach_parts` | Press a part onto any stud, in any direction (sideways building / SNOT) |
+| `part_info`, `list_studs` | A part's studs and receivers; a placed part's studs, directions and what is on them |
 | `fill_layers` | Colour layer maps packed automatically into bricks/plates/tiles in running bond |
 | `image_to_grid`, `build_mosaic` | Quantize pictures to LEGO colours; build mosaics |
-| `describe_model`, `check_model` | Per-level maps, part counts, floating/loose-part detection |
-| `render_model` | Preview sheet (iso/front/top/etc.), optionally beside the reference picture |
+| `describe_model`, `check_model` | Per-level maps, part counts, floating/loose-part detection from real stud contact |
+| `render_model` | Preview sheet with real part shapes (or `detail="simple"`), optionally beside the reference picture |
 | `export_ldr` | LDraw file, one build step per level; `legacy_ids` for older part numbers |
 
 ### Grid
@@ -106,12 +108,35 @@ builds with you.
 - `rot` 0/90/180/270 (or front/right/back/left). A slope's sloped face points
   that way. At rot 0 a 2x4 brick is 4 studs long in x.
 
+### Sideways building (SNOT)
+
+Sculpted models cover a core of side-stud bricks (87087, 4733, 32952, 67329, 11211)
+and brackets (99780, 99207, 99781, 44728, ...) with outward-facing curved slopes,
+tiles and wedges. To build that way:
+
+- `list_studs(id)` shows a placed part's studs, which way each points and whether
+  it is free.
+- `attach_parts` presses a new part's receiver (an underside stud hole, see
+  `part_info`) onto one of those studs. The new part's top then faces the stud's
+  direction, and `rot` spins it about that direction.
+- `add_parts` also accepts `up` (up/down/front/back/right/left) to place a turned
+  part by its grid corner, or `ldu=[x, y, z]` for an exact LDraw position.
+
+Studs come from the stud primitives in each part's LDraw file. Receivers are
+derived from the underside shape: one per stud cell whose walls reach a common
+plane with room for a stud. Collisions for turned parts use each part's real
+shape, voxelized at 4 LDU. `check_model` counts a connection wherever a stud sits
+in a receiver facing the opposite way, in any direction.
+
 ### Notes
 
-- Any LDraw part can be placed. Parts outside the curated catalog are handled
-  as their bounding box for collisions, connectivity and previews. The exported
+- Any LDraw part can be placed. Upright parts on the grid collide by grid cell
+  (bounding box); turned and attached parts collide by real shape. The exported
   file always uses the real part.
-- Previews are simplified geometry: round parts and arches show as boxes.
+- `render_model` draws real part shapes by default; `detail="simple"` is faster
+  and shows round parts and arches as boxes.
+- Only stud connections are modelled: ball joints, clips, hinges and Technic pins
+  are exported correctly but do not count as connections in `check_model`.
 
 ## Very large builds
 

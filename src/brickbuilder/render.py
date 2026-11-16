@@ -198,11 +198,94 @@ def parse_view(name: str) -> tuple[str, float, float]:
     raise ValueError(f"Unknown view '{name}'. Use {', '.join(VIEWS)} or 'azimuth,elevation' in degrees")
 
 
+# ---------------------------------------------------------------- real geometry
+
+
+def real_scene(model: Model):
+    """Every part's actual LDraw polygons and edge lines in render space (+Y up)."""
+    from . import geometry
+    flip = np.array([1.0, -1.0, 1.0])
+    P, PC, L, LC = [], [], [], []
+    for pid, p in model.parts.items():
+        g = model.geometry(pid)
+        mesh = geometry.load(p.part)
+        if len(mesh.polys):
+            P.append((mesh.polys @ g.matrix.T + g.pos) * flip)
+            PC.append(np.where(mesh.poly_colours == 16, p.color, mesh.poly_colours))
+        if len(mesh.lines):
+            L.append((mesh.lines @ g.matrix.T + g.pos) * flip)
+            LC.append(np.where(mesh.line_colours == 16, p.color, mesh.line_colours))
+    cat = lambda xs, shape: np.concatenate(xs) if xs else np.zeros(shape)
+    return (cat(P, (0, 4, 3)), cat(PC, (0,)).astype(int), cat(L, (0, 2, 3)), cat(LC, (0,)).astype(int))
+
+
+def render_real_view(scene, az: float, el: float, width: int, height: int, ss: int = 2) -> Image.Image:
+    """Painter's-algorithm render of real part shapes with LDraw edge lines."""
+    from . import geometry
+    P, PC, L, LC = scene
+    W, H = width * ss, height * ss
+    img = Image.new("RGB", (W, H), tuple(int(c) for c in BACKGROUND))
+    if not len(P):
+        return img.resize((width, height))
+    r, u, v = _camera(az, el)
+    sx, sy, sd = P @ r, P @ u, P @ v
+    lx, ly, ld = L @ r, L @ u, L @ v
+    allx = np.concatenate([sx.ravel(), lx.ravel()])
+    ally = np.concatenate([sy.ravel(), ly.ravel()])
+    margin = 0.06
+    span = max(allx.max() - allx.min(), 1e-6), max(ally.max() - ally.min(), 1e-6)
+    scale = min(W * (1 - 2 * margin) / span[0], H * (1 - 2 * margin) / span[1])
+    cx, cy = (allx.max() + allx.min()) / 2, (ally.max() + ally.min()) / 2
+    to_px = lambda x, y: np.stack([(x - cx) * scale + W / 2, H / 2 - (y - cy) * scale], -1)
+
+    normals = np.cross(P[:, 1] - P[:, 0], P[:, 2] - P[:, 0])
+    n = np.linalg.norm(normals, axis=1)
+    n[n == 0] = 1
+    normals = normals / n[:, None]
+    facing = np.where((normals @ v)[:, None] < 0, -normals, normals)  # two-sided
+    shade = 0.42 + 0.48 * np.clip(facing @ LIGHT, 0, 1) + 0.18 * np.clip(facing @ v, 0, 1)
+    table = ldraw.colours()
+    rgb_cache: dict[int, np.ndarray] = {}
+
+    def rgb(code: int) -> np.ndarray:
+        if code not in rgb_cache:
+            c = table.get(code)
+            rgb_cache[code] = np.array(c.rgb if c else (200, 200, 200), float)
+        return rgb_cache[code]
+
+    poly_px = to_px(sx, sy)
+    line_px = to_px(lx, ly)
+    # Skip what is too small to see at this size (stud and tube detail on big models).
+    x, y = poly_px[..., 0], poly_px[..., 1]
+    area = 0.5 * np.abs((x * np.roll(y, -1, 1) - np.roll(x, -1, 1) * y).sum(1))
+    keep_p = np.nonzero(area >= 0.6)[0]
+    seg = np.linalg.norm(line_px[:, 1] - line_px[:, 0], axis=1) if len(L) else np.zeros(0)
+    keep_l = np.nonzero(seg >= 1.5)[0]
+    depth_p, depth_l = sd.mean(1), (ld.mean(1) if len(L) else np.zeros(0))
+    items = [(float(depth_p[i]), 0, int(i)) for i in keep_p]
+    items += [(float(depth_l[i]) + 0.6, 1, int(i)) for i in keep_l]  # lines win ties
+    items.sort(key=lambda it: it[0])  # far (small depth) first
+    draw = ImageDraw.Draw(img)
+    lw = max(1, ss // 2)
+    for _, kind, i in items:
+        if kind == 0:
+            col = tuple(int(c) for c in np.clip(rgb(PC[i]) * shade[i], 0, 255))
+            draw.polygon([tuple(p) for p in poly_px[i]], fill=col)
+        else:
+            code = LC[i]
+            col = (35, 35, 42) if code == geometry.EDGE else tuple(int(c * 0.6) for c in rgb(code))
+            draw.line([tuple(p) for p in line_px[i]], fill=col, width=lw)
+    return img.resize((width, height), Image.Resampling.LANCZOS) if ss > 1 else img
+
+
 def render(model: Model, views: list[str] | None = None, size: int = 520,
-           reference: str | None = None) -> bytes:
+           reference: str | None = None, detail: str = "real") -> bytes:
+    """detail='real' draws every part's true shape (slower, exact); 'simple' draws boxes and
+    slope prisms (fast)."""
     views = views or DEFAULT_VIEWS
     parsed = [parse_view(v) for v in views]
-    mesh = build_mesh(model)
+    real = detail == "real"
+    mesh = real_scene(model) if real else build_mesh(model)
     panels = []
     if reference:
         ref = Image.open(Path(reference).expanduser()).convert("RGB")
@@ -211,7 +294,8 @@ def render(model: Model, views: list[str] | None = None, size: int = 520,
         canvas.paste(ref, ((size - ref.width) // 2, (size - ref.height) // 2))
         panels.append(("reference", canvas))
     for name, az, el in parsed:
-        panels.append((name, render_view(mesh, az, el, size, size)))
+        panels.append((name, render_real_view(mesh, az, el, size, size) if real
+                       else render_view(mesh, az, el, size, size)))
 
     cols = 1 if len(panels) == 1 else 2 if len(panels) <= 4 else 3
     rows = math.ceil(len(panels) / cols)

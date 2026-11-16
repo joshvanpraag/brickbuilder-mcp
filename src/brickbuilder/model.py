@@ -7,6 +7,13 @@ Grid coordinates (what tools use):
 A part's (x, y, z) is the minimum corner of its body after rotation.
 
 LDraw coordinates: X = 20*x, Z = 20*z, Y = -8*y (LDraw -Y is up).
+
+Parts can also face sideways or upside down (SNOT): `up` names the world direction the
+part's own top (its studs) points, and `rot` spins it about that direction. Such parts
+are placed either by grid corner, by an exact LDraw position (`ldu`), or by attaching
+one of their receivers onto a stud of a placed part (Model.attach). Their collisions are
+checked against their real shape (4 LDU voxels) and connections come from real stud
+contact (see geometry.py).
 """
 
 from __future__ import annotations
@@ -21,9 +28,43 @@ from pathlib import Path
 
 import numpy as np
 
-from . import catalog, ldraw
+from . import catalog, geometry, ldraw
 
 FACINGS = {"front": 0, "right": 90, "back": 180, "left": 270}
+
+# World direction (LDraw frame, -Y up, -Z front) for each `up` name, and the rotation that
+# turns a part's local top (-Y) to point that way. Columns are images of local X, Y, Z.
+DIRECTIONS = {"up": (0, -1, 0), "down": (0, 1, 0), "front": (0, 0, -1), "back": (0, 0, 1),
+              "right": (1, 0, 0), "left": (-1, 0, 0)}
+_UP_MATRIX = {
+    "up": np.eye(3),
+    "down": np.diag([1.0, -1.0, -1.0]),
+    "front": np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], dtype=float),
+    "back": np.array([[1, 0, 0], [0, 0, 1], [0, -1, 0]], dtype=float),
+    "right": np.array([[0, -1, 0], [1, 0, 0], [0, 0, 1]], dtype=float),
+    "left": np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]], dtype=float),
+}
+CLASH_VOXELS = 2  # tolerated shared 4 LDU voxels (curved surfaces that only touch)
+
+
+def parse_up(up: str | None) -> str:
+    key = (up or "up").strip().lower()
+    if key not in _UP_MATRIX:
+        raise BuildError(f"up must be one of {', '.join(_UP_MATRIX)}, got '{up}'")
+    return key
+
+
+def orientation(up: str, rot: int) -> np.ndarray:
+    """Rotation matrix: spin by `rot` about the part's own vertical axis, then turn its top
+    to face `up`."""
+    return _UP_MATRIX[parse_up(up)] @ rot_matrix(rot)
+
+
+def direction_name(d: np.ndarray) -> str:
+    for name, v in DIRECTIONS.items():
+        if np.dot(d, v) > 0.99:
+            return name
+    raise BuildError(f"stud direction {np.round(d, 3).tolist()} is not along an axis")
 
 
 class BuildError(Exception):
@@ -63,6 +104,12 @@ class Placement:
     y: int
     z: int
     rot: int = 0
+    up: str = "up"                     # world direction the part's top faces
+    ldu: list[float] | None = None     # exact LDraw origin position (free placement)
+
+    @property
+    def free(self) -> bool:
+        return self.up != "up" or self.ldu is not None
 
 
 @dataclass
@@ -74,10 +121,64 @@ class Geometry:
     bottom_conn: set[tuple[int, int]]  # (x, z) columns that accept studs from below
     y_top: int  # highest occupied level
     shape: catalog.Shape = field(default_factory=catalog.Shape)
+    free: bool = False
+    part: str = ""
+    _vox: set | None = None
+    _aabb: tuple | None = None
+
+    # ---- real-shape queries (world LDraw coordinates)
+
+    def voxels(self) -> set[tuple[int, int, int]]:
+        if self._vox is None:
+            local = geometry.voxels(self.part)
+            w = local @ self.matrix.T + self.pos if len(local) else np.zeros((0, 3))
+            self._vox = set(map(tuple, np.floor(w / geometry.VOXEL).astype(int).tolist()))
+        return self._vox
+
+    def aabb(self) -> tuple[np.ndarray, np.ndarray]:
+        """World box of the body in LDU (studs excluded)."""
+        if self._aabb is None:
+            local = geometry.voxels(self.part)
+            if len(local):
+                w = local @ self.matrix.T + self.pos
+                self._aabb = (w.min(0) - geometry.VOXEL / 2, w.max(0) + geometry.VOXEL / 2)
+            else:
+                self._aabb = (self.pos.copy(), self.pos.copy())
+        return self._aabb
+
+    def studs(self) -> list[tuple[np.ndarray, np.ndarray]]:
+        return [(self.matrix @ p + self.pos, self.matrix @ d) for p, d in geometry.studs(self.part)]
+
+    def receivers(self) -> list[tuple[np.ndarray, np.ndarray]]:
+        return [(self.matrix @ p + self.pos, self.matrix @ d) for p, d in geometry.receivers(self.part)]
+
+
+def _free_geometry(p: Placement, pid: str, shape: catalog.Shape) -> Geometry:
+    m = orientation(p.up, p.rot)
+    local = geometry.voxels(pid)
+    if not len(local):
+        raise BuildError(f"{pid} has no solid geometry to place")
+    w = local @ m.T
+    lo, hi = w.min(0) - geometry.VOXEL / 2, w.max(0) + geometry.VOXEL / 2
+    if p.ldu is not None:
+        pos = np.array([float(v) for v in p.ldu])
+    else:
+        # grid placement of a turned part: its body's min corner at (x, z), bottom at level y
+        pos = np.array([20 * p.x - lo[0], -8 * p.y - hi[1], 20 * p.z - lo[2]])
+    g = Geometry(m, pos, [], set(), set(), 0, shape, free=True, part=pid)
+    centres = local @ m.T + pos
+    cells = {(math.floor(c[0] / 20), math.floor(-c[1] / 8), math.floor(c[2] / 20)) for c in centres}
+    g.cells = sorted(cells)
+    g.y_top = max(c[1] for c in cells)
+    # keep the placement's grid fields meaningful (sorting, listings) for free parts
+    p.x, p.y, p.z = min(c[0] for c in cells), min(c[1] for c in cells), min(c[2] for c in cells)
+    return g
 
 
 def compute_geometry(p: Placement) -> Geometry:
     pid, shape, _ = catalog.lookup(p.part)
+    if p.free:
+        return _free_geometry(p, pid, shape)
     b = ldraw.part_bounds(pid)
     m = rot_matrix(p.rot)
     corners = np.array([[x, 0, z] for x in (b.x0, b.x1) for z in (b.z0, b.z1)], dtype=float) @ m.T
@@ -107,7 +208,7 @@ def compute_geometry(p: Placement) -> Geometry:
                 top.add((gx, gz))
             if shape.kind != "slope_inv" or high_row:
                 bottom.add((gx, gz))
-    return Geometry(m, pos, cells, top, bottom, p.y + h - 1, shape)
+    return Geometry(m, pos, cells, top, bottom, p.y + h - 1, shape, part=pid)
 
 
 class Model:
@@ -117,7 +218,8 @@ class Model:
         self.parts: dict[int, Placement] = {}
         self.next_id = 1
         self._geom: dict[int, Geometry] = {}
-        self.occ: dict[tuple[int, int, int], int] = {}
+        self.occ: dict[tuple[int, int, int], int] = {}          # grid cells of upright grid parts
+        self.free_cells: dict[tuple[int, int, int], set[int]] = {}  # cells touched by free parts
         self._history: list[tuple[dict[int, Placement], int]] = []
 
     # ------------------------------------------------------------ editing
@@ -137,47 +239,109 @@ class Model:
         self.parts, self.next_id = {}, next_id
         self._geom.clear()
         self.occ.clear()
+        self.free_cells.clear()
         for p in parts.values():
             self._insert(p)
 
-    def _insert(self, p: Placement) -> None:
-        g = compute_geometry(p)
+    def _insert(self, p: Placement, g: Geometry | None = None) -> None:
+        g = g or compute_geometry(p)
         self.parts[p.id] = p
         self._geom[p.id] = g
-        for c in g.cells:
-            self.occ[c] = p.id
+        if g.free:
+            for c in g.cells:
+                self.free_cells.setdefault(c, set()).add(p.id)
+        else:
+            for c in g.cells:
+                self.occ[c] = p.id
 
     def geometry(self, pid: int) -> Geometry:
         return self._geom[pid]
 
-    def add(self, part: str, color: int | str, x: int, y: int, z: int, rot: int | str | None = 0) -> Placement:
+    def _shape_clashes(self, g: Geometry, only_free: bool) -> list[int]:
+        """Parts whose real shape overlaps g's (more than CLASH_VOXELS shared voxels)."""
+        lo, hi = g.aabb()
+        hits = []
+        for i, other in self._geom.items():
+            if only_free and not other.free:
+                continue
+            olo, ohi = other.aabb()
+            if np.any(olo >= hi - 0.5) or np.any(ohi <= lo + 0.5):
+                continue
+            if len(g.voxels() & other.voxels()) > CLASH_VOXELS:
+                hits.append(i)
+        return hits
+
+    def add(self, part: str, color: int | str, x: int, y: int, z: int, rot: int | str | None = 0,
+            up: str | None = "up", ldu: list[float] | None = None) -> Placement:
         pid, _, _ = catalog.lookup(part)
         colour = ldraw.resolve_colour(color)
-        p = Placement(self.next_id, pid, colour.code, int(x), int(y), int(z), parse_rot(rot))
+        p = Placement(self.next_id, pid, colour.code, int(x), int(y), int(z), parse_rot(rot), parse_up(up),
+                      None if ldu is None else [float(v) for v in ldu])
         g = compute_geometry(p)
-        clashes = sorted({self.occ[c] for c in g.cells if c in self.occ})
+        where = (f"ldu={_fmt_vec(p.ldu)} up={p.up} rot={p.rot}" if p.ldu is not None
+                 else f"x={x} y={y} z={z} rot={p.rot}" + ("" if p.up == "up" else f" up={p.up}"))
+        if g.free:
+            clashes = self._shape_clashes(g, only_free=False)
+            if g.aabb()[1][1] > 0.5:
+                raise BuildError(f"{pid} at {where} would go below the ground")
+        else:
+            clashes = sorted({self.occ[c] for c in g.cells if c in self.occ})
+            if self.free_cells and any(c in self.free_cells for c in g.cells):
+                clashes += self._shape_clashes(g, only_free=True)
+            if min(c[1] for c in g.cells) < 0:
+                raise BuildError(f"{pid} at y={y} would go below the ground (y<0)")
         if clashes:
-            others = ", ".join(f"#{i} {self.parts[i].part}" for i in clashes[:5])
-            raise BuildError(f"{pid} at x={x} y={y} z={z} rot={p.rot} collides with {others}")
-        if min(c[1] for c in g.cells) < 0:
-            raise BuildError(f"{pid} at y={y} would go below the ground (y<0)")
+            others = ", ".join(f"#{i} {self.parts[i].part}" for i in sorted(set(clashes))[:5])
+            raise BuildError(f"{pid} at {where} collides with {others}")
         self.next_id += 1
-        self._insert(p)
+        self._insert(p, g)
         return p
+
+    def attach(self, part: str, color: int | str, to_id: int, stud: int, receiver: int = 0,
+               rot: int | str | None = 0) -> Placement:
+        """Press one of the new part's receivers (underside stud holes) onto stud number
+        `stud` of placed part `to_id`. The new part's top then faces the way that stud
+        points; `rot` spins it about that direction."""
+        if to_id not in self.parts:
+            raise BuildError(f"No part #{to_id}")
+        target = self._geom[to_id].studs()
+        if not 0 <= stud < len(target):
+            raise BuildError(f"#{to_id} {self.parts[to_id].part} has {len(target)} studs (0..{len(target) - 1}), not {stud}")
+        pid, _, _ = catalog.lookup(part)
+        recv = geometry.receivers(pid)
+        if not recv:
+            raise BuildError(f"{pid} has no underside that can sit on a stud")
+        if not 0 <= receiver < len(recv):
+            raise BuildError(f"{pid} has {len(recv)} receivers (0..{len(recv) - 1}), not {receiver}")
+        spos, sdir = target[stud]
+        up = direction_name(sdir)
+        r = parse_rot(rot)
+        pos = spos - orientation(up, r) @ recv[receiver][0]
+        return self.add(pid, color, 0, 0, 0, r, up, [round(float(v), 3) for v in pos])
 
     def remove(self, ids: list[int]) -> list[int]:
         removed = []
         for i in ids:
             if i in self.parts:
-                for c in self._geom[i].cells:
-                    self.occ.pop(c, None)
+                g = self._geom[i]
+                for c in g.cells:
+                    if g.free:
+                        holders = self.free_cells.get(c)
+                        if holders:
+                            holders.discard(i)
+                            if not holders:
+                                del self.free_cells[c]
+                    elif self.occ.get(c) == i:
+                        del self.occ[c]
                 del self.parts[i], self._geom[i]
                 removed.append(i)
         return removed
 
     def parts_in_region(self, x0, x1, y0, y1, z0, z1) -> list[int]:
-        return sorted({pid for (x, y, z), pid in self.occ.items()
-                       if x0 <= x <= x1 and y0 <= y <= y1 and z0 <= z <= z1})
+        inside = lambda c: x0 <= c[0] <= x1 and y0 <= c[1] <= y1 and z0 <= c[2] <= z1
+        hits = {pid for c, pid in self.occ.items() if inside(c)}
+        hits |= {pid for c, pids in self.free_cells.items() if inside(c) for pid in pids}
+        return sorted(hits)
 
     def clear(self) -> None:
         self._rebuild({}, 1)
@@ -185,21 +349,46 @@ class Model:
     # ------------------------------------------------------------ queries
 
     def bounds(self) -> tuple[int, int, int, int, int, int] | None:
-        if not self.occ:
+        cells = list(self.occ.keys()) + list(self.free_cells.keys())
+        if not cells:
             return None
-        xs, ys, zs = zip(*self.occ.keys())
+        xs, ys, zs = zip(*cells)
         return min(xs), max(xs), min(ys), max(ys), min(zs), max(zs)
 
     def connections(self) -> dict[int, set[int]]:
-        """Stud connections between parts (undirected adjacency)."""
+        """Stud connections between parts (undirected adjacency), from real stud contact:
+        a stud of one part sitting in a receiver of another, facing opposite ways. Works for
+        studs pointing any direction (SNOT)."""
         adj: dict[int, set[int]] = {i: set() for i in self.parts}
+        holes: dict[tuple[int, int, int], list[tuple[int, np.ndarray]]] = {}
         for i, g in self._geom.items():
-            for (x, z) in g.top_studs:
-                above = self.occ.get((x, g.y_top + 1, z))
-                if above is not None and above != i and (x, z) in self._geom[above].bottom_conn:
-                    adj[i].add(above)
-                    adj[above].add(i)
+            for pos, d in g.receivers():
+                holes.setdefault(_key(pos), []).append((i, d))
+        for i, g in self._geom.items():
+            for pos, d in g.studs():
+                for j, rd in holes.get(_key(pos), ()):
+                    if j != i and float(np.dot(d, rd)) < -0.9:
+                        adj[i].add(j)
+                        adj[j].add(i)
         return adj
+
+    def stud_usage(self, pid: int) -> list[int | None]:
+        """For each stud of part pid: the id of the part plugged onto it, or None."""
+        holes: dict[tuple[int, int, int], list[tuple[int, np.ndarray]]] = {}
+        for i, g in self._geom.items():
+            if i == pid:
+                continue
+            for pos, d in g.receivers():
+                holes.setdefault(_key(pos), []).append((i, d))
+        out = []
+        for pos, d in self._geom[pid].studs():
+            hit = next((j for j, rd in holes.get(_key(pos), ()) if float(np.dot(d, rd)) < -0.9), None)
+            out.append(hit)
+        return out
+
+    def grounded(self, pid: int) -> bool:
+        g = self._geom[pid]
+        return g.aabb()[1][1] >= -0.5 if g.free else self.parts[pid].y == 0
 
     def check(self) -> dict:
         adj = self.connections()
@@ -218,7 +407,7 @@ class Model:
                         stack.append(m)
             groups.append(sorted(group))
         groups.sort(key=len, reverse=True)
-        grounded = lambda grp: any(self.parts[i].y == 0 for i in grp)
+        grounded = lambda grp: any(self.grounded(i) for i in grp)
         floating = [grp for grp in groups if not grounded(grp)]
         # Parts that sit only on tiles / slopes rest without being attached.
         return {
@@ -239,6 +428,8 @@ class Model:
             row = []
             for x in range(x0, x1 + 1):
                 pid = self.occ.get((x, y, z))
+                if pid is None and (x, y, z) in self.free_cells:
+                    pid = min(self.free_cells[(x, y, z)])
                 row.append("." if pid is None else legend.setdefault(self.parts[pid].color, _next_char(legend)))
             rows.append("".join(row))
         return rows
@@ -301,6 +492,15 @@ def legacy_part_id(pid: str) -> str:
 def _fmt(v: float) -> str:
     v = round(float(v), 3)
     return str(int(v)) if v == int(v) else f"{v:g}"
+
+
+def _fmt_vec(v) -> str:
+    return "[" + ", ".join(_fmt(x) for x in v) + "]"
+
+
+def _key(pos: np.ndarray) -> tuple[int, int, int]:
+    """Connector position rounded to whole LDU (stud and receiver must coincide)."""
+    return tuple(int(round(float(c))) for c in pos)
 
 
 def safe_name(name: str) -> str:

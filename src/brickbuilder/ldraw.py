@@ -54,9 +54,17 @@ def library_available() -> bool:
     return (LDRAW_DIR / "parts").is_dir() and (LDRAW_DIR / "LDConfig.ldr").exists()
 
 
+_MALE_STUD = re.compile(r"(stud|stud-logo\d*|stud2|stud2-logo\d*|stud2a|stud6|stud6a|stud10|stud13|stud15|"
+                        r"stud17|stud17a|stud26)\.dat")
+
+
 @functools.lru_cache(maxsize=8192)
 def _points(name: str) -> np.ndarray:
-    """All vertices of a part/subpart/primitive, fully resolved, in its local frame."""
+    """All vertices of a part/subpart/primitive, fully resolved, in its local frame.
+    Studs are left out: they are not part of the body, and side studs (brackets, SNOT
+    bricks) would otherwise push the footprint off the stud grid."""
+    if _MALE_STUD.fullmatch(name.strip().lower().replace("\\", "/").rsplit("/", 1)[-1]):
+        return np.zeros((0, 3))
     path = _find(name)
     if path is None:
         return np.zeros((0, 3))

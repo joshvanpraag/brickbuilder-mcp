@@ -43,6 +43,22 @@ Workflow for building from a picture:
 3. render_model (optionally with reference_image) and compare against the picture;
    describe_model shows per-level maps. Iterate with remove_parts / add_parts / undo.
 4. check_model to find floating or unconnected parts, then export_ldr.
+
+Sideways building (SNOT - studs not on top), for smooth, rounded sculpted shapes:
+- Parts with studs on their sides give studs pointing front/back/left/right, e.g. 87087
+  (1x1, stud on 1 side), 4733 (studs on 4 sides), 32952 / 67329 (1.667 bricks with side
+  studs), 11211 / 30414 (studs on one side), and brackets 99780 / 99207 / 36840 (up) and
+  99781 / 44728 / 36841 (down).
+- part_info(part) lists a part's studs and its receivers (underside stud holes, numbered).
+- list_studs(id) lists a placed part's studs, which way each points and whether it is free.
+- attach_parts presses a new part's receiver onto one of those studs: the new part's top
+  then faces the stud's direction (a curved slope on a front-facing stud has its curve
+  facing front) and rot spins it about that direction. This is how shells of curved
+  slopes (15068, 11477, 93273, 50950, 93606), tiles and wedges cover a core.
+- add_parts also takes up ('up','down','front','back','right','left') to place a turned
+  part by its grid corner, or ldu=[x, y, z] for an exact LDraw position.
+Collisions use each part's real shape and check_model counts real stud contact in every
+direction. render_model draws real part shapes by default.
 """
 
 mcp = MCPServer("brickbuilder", instructions=INSTRUCTIONS)
@@ -93,10 +109,21 @@ def _require_library() -> None:
 class PartSpec(BaseModel):
     part: str = Field(description="LDraw part id, e.g. '3001' (brick 2x4)")
     color: int | str = Field(description="LDraw colour code or name, e.g. 4 or 'Red'")
-    x: int
-    y: int = Field(description="Bottom level in plates (brick = 3)")
-    z: int
-    rot: int | str = Field(0, description="0/90/180/270 or front/right/back/left")
+    x: int = 0
+    y: int = Field(0, description="Bottom level in plates (brick = 3)")
+    z: int = 0
+    rot: int | str = Field(0, description="0/90/180/270 or front/right/back/left (spin about the part's own top)")
+    up: str = Field("up", description="Direction the part's top/studs face: up, down, front, back, right, left")
+    ldu: list[float] | None = Field(None, description="Exact LDraw origin [x, y, z] in LDU (overrides x/y/z)")
+
+
+class AttachSpec(BaseModel):
+    part: str = Field(description="LDraw part id of the new part")
+    color: int | str
+    to_id: int = Field(description="Placed part whose stud the new part presses onto")
+    stud: int = Field(description="Stud index on to_id (see list_studs)")
+    receiver: int = Field(0, description="Which receiver of the new part goes on that stud (see part_info)")
+    rot: int | str = Field(0, description="Spin about the stud direction: 0/90/180/270")
 
 
 class Region(BaseModel):
@@ -155,7 +182,7 @@ def list_parts(category: str | None = None, search: str | None = None) -> str:
         for pid, title in ldraw.search_library(search):
             try:
                 sx, sz, h = catalog.footprint(pid)
-                note = "" if pid in catalog.CATALOG else " (previewed as a box)"
+                note = "" if pid in catalog.CATALOG else " (box in simple previews)"
                 lines.append(f"{pid:10} {sx}x{sz} h{h}  {title}{note}")
             except ldraw.LDrawError:
                 continue
@@ -200,7 +227,7 @@ def add_parts(parts: list[PartSpec]) -> str:
     ok, errors = [], []
     for spec in parts:
         try:
-            p = m.add(spec.part, spec.color, spec.x, spec.y, spec.z, spec.rot)
+            p = m.add(spec.part, spec.color, spec.x, spec.y, spec.z, spec.rot, spec.up, spec.ldu)
             ok.append(p.id)
         except (BuildError, ldraw.LDrawError) as e:
             errors.append(str(e))
@@ -209,6 +236,75 @@ def add_parts(parts: list[PartSpec]) -> str:
     if errors:
         msg += "\nErrors:\n- " + "\n- ".join(errors)
     return msg
+
+
+@mcp.tool()
+def attach_parts(parts: list[AttachSpec]) -> str:
+    """Attach parts onto studs of placed parts, in any direction (SNOT). Each new part's
+    receiver (underside stud hole) `receiver` is pressed onto stud `stud` of part `to_id`;
+    the new part's top then faces the way that stud points, spun by `rot`. Parts are
+    attached in order, so later ones can attach to earlier ones (use the ids returned by
+    earlier calls). Collisions are checked against real part shapes."""
+    m = _model()
+    if len(parts) > MAX_PARTS_PER_CALL:
+        raise BuildError(f"attach_parts is limited to {MAX_PARTS_PER_CALL} parts per call")
+    m.checkpoint()
+    ok, errors = [], []
+    for spec in parts:
+        try:
+            p = m.attach(spec.part, spec.color, spec.to_id, spec.stud, spec.receiver, spec.rot)
+            ok.append(f"#{p.id} {p.part} facing {p.up}")
+        except (BuildError, ldraw.LDrawError) as e:
+            errors.append(f"{spec.part} on #{spec.to_id} stud {spec.stud}: {e}")
+    _save(m)
+    msg = ("Attached:\n- " + "\n- ".join(ok)) if ok else "Attached nothing."
+    if errors:
+        msg += "\nErrors:\n- " + "\n- ".join(errors)
+    return msg
+
+
+@mcp.tool()
+def list_studs(id: int, free_only: bool = False) -> str:
+    """List a placed part's studs: index (for attach_parts), the way it points, its position
+    (x, z in studs, y in plates, as on the grid) and what is plugged onto it, if anything."""
+    from .model import direction_name
+    m = _model()
+    if id not in m.parts:
+        raise BuildError(f"No part #{id}")
+    g = m.geometry(id)
+    used = m.stud_usage(id)
+    lines = [f"#{id} {m.parts[id].part} ({ldraw.part_title(m.parts[id].part)}) facing {m.parts[id].up}:"]
+    for i, ((pos, d), who) in enumerate(zip(g.studs(), used)):
+        if free_only and who is not None:
+            continue
+        where = f"x={pos[0] / 20 + 0:g} y={-pos[1] / 8 + 0:g} z={pos[2] / 20 + 0:g}"
+        lines.append(f"  stud {i:2}: points {direction_name(d):5}  at {where}" +
+                     (f"  <- #{who} {m.parts[who].part}" if who is not None else "  free"))
+    return "\n".join(lines) if len(lines) > 1 else lines[0] + " no studs"
+
+
+@mcp.tool()
+def part_info(part: str) -> str:
+    """Describe a part's connectors: its studs (which way they point at up='up', rot=0) and
+    its receivers (underside stud holes, numbered for attach_parts), with positions in studs
+    relative to the part origin (x right, z back; y in plates, down is negative)."""
+    from . import geometry
+    from .model import direction_name
+    _require_library()
+    pid, shape, cat = catalog.lookup(part)
+    sx, sz, h = catalog.footprint(pid)
+    lines = [f"{pid}: {ldraw.part_title(pid)}  ({sx}x{sz} studs, {h} plates tall)"]
+    st = geometry.studs(pid)
+    counts = Counter(direction_name(d) for _, d in st)
+    lines.append("studs: " + (", ".join(f"{n} pointing {k}" for k, n in counts.items()) if st else "none"))
+    rc = geometry.receivers(pid)
+    if rc:
+        lines.append("receivers (index: x, z in studs, height in plates):")
+        for i, (pos, _) in enumerate(rc):
+            lines.append(f"  {i:2}: x={pos[0] / 20 + 0:g} z={pos[2] / 20 + 0:g} y={-pos[1] / 8 + 0:g}")
+    else:
+        lines.append("receivers: none (cannot be pressed onto a stud)")
+    return "\n".join(lines)
 
 
 @mcp.tool()
@@ -336,8 +432,10 @@ def describe_model(levels: list[int] | None = None, all_levels: bool = False, li
     if legend:
         out.append("legend: " + ", ".join(f"{ch}={table[c].name}" for c, ch in legend.items()))
     if list_all_parts:
-        out.append("placements (id part color x y z rot):")
-        out += [f"  {p.id} {p.part} {p.color} {p.x} {p.y} {p.z} {p.rot}" for p in m.parts.values()]
+        out.append("placements (id part color x y z rot [up] [ldu]):")
+        out += [f"  {p.id} {p.part} {p.color} {p.x} {p.y} {p.z} {p.rot}" +
+                (f" up={p.up}" if p.up != "up" else "") + (f" ldu={p.ldu}" if p.ldu is not None else "")
+                for p in m.parts.values()]
     return "\n".join(out)
 
 
@@ -358,17 +456,19 @@ def check_model() -> str:
 
 
 @mcp.tool()
-def render_model(views: list[str] | None = None, size: int = 480, reference_image: str | None = None) -> Image:
+def render_model(views: list[str] | None = None, size: int = 480, reference_image: str | None = None,
+                 detail: Literal["real", "simple"] = "real") -> Image:
     """Render a preview sheet. views: any of front, back, left, right, top, iso_front_left,
     iso_front_right, iso_back_left, iso_back_right, or 'azimuth,elevation' in degrees.
     Default: iso_front_left, iso_back_right, front, top. reference_image adds the source
-    picture as the first panel for side-by-side comparison. Parts are simplified
-    (round parts and non-catalog parts show as boxes)."""
+    picture as the first panel for side-by-side comparison. detail='real' draws every
+    part's true LDraw shape (curves, side studs, sideways parts); 'simple' draws quick
+    boxes and slope prisms."""
     m = _model()
     views = (views or None) and views[:MAX_VIEWS]
     size = max(64, min(int(size), MAX_RENDER_SIZE))
-    return Image(data=render.render(m, views, size, _image_path(reference_image) if reference_image else None),
-                 format="png")
+    return Image(data=render.render(m, views, size, _image_path(reference_image) if reference_image else None,
+                                    detail), format="png")
 
 
 @mcp.tool()
