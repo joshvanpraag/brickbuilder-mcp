@@ -62,6 +62,12 @@ window is in roughly the right place. Generate them instead:
   courtyard, not under bays) with two layers of plates at the bottom, the second laid across
   the seams of the first. The bottom layer joins the plate course under the walls, so the
   floor locks to the building and to itself. Check that no plate pokes past a curved wall.
+- **Angled bays: one shape top to bottom.** A bay is either round all the way up or angled
+  all the way up, never round, then angled, then round. For an angled (three-sided) bay use
+  the angled versions of each layer: wedge plate 3x3 cut corner (2450), facet brick 3x3
+  (2462) and tile 2x2 with a cut corner (27263). There is no angled corner window, so each
+  angled face takes an ordinary flat window turned 45 degrees on a single stud
+  (`attach_parts` with `turn=45`), boxed in by the wedge plates above and below.
 - **No arches over doors in a hollow building.** An arch brick (3659) is open underneath, and
   over a door frame that opening looks straight into the empty inside. Use a solid lintel
   instead: a masonry 1x4 (15533) with a curved keystone (37352) on top.

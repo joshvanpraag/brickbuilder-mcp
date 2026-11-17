@@ -135,6 +135,9 @@ tiles and wedges. To build that way:
 - `attach_parts` presses a new part's receiver (an underside stud hole, see
   `part_info`) onto one of those studs. The new part's top then faces the stud's
   direction, and `rot` spins it about that direction.
+- `turn` (on `attach_parts`) turns a part held by one stud to any angle, e.g. 45
+  degrees: a flat window on the angled face of a bay, or a panel turned a few
+  degrees. It still counts as connected through that one stud.
 - `add_parts` also accepts `up` (up/down/front/back/right/left) to place a turned
   part by its grid corner, or `ldu=[x, y, z]` for an exact LDraw position.
 

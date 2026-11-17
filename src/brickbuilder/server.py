@@ -162,6 +162,8 @@ class AttachSpec(BaseModel):
     stud: int = Field(description="Stud index on to_id (see list_studs)")
     receiver: int = Field(0, description="Which receiver of the new part goes on that stud (see part_info)")
     rot: int | str = Field(0, description="Spin about the stud direction: 0/90/180/270")
+    turn: float = Field(0, description="Extra turn about the stud, any angle in degrees (e.g. 45). "
+                        "For a part held by one stud, such as a window on an angled bay face")
 
 
 class InsertSpec(BaseModel):
@@ -324,7 +326,8 @@ def insert_parts(parts: list[InsertSpec]) -> str:
 def attach_parts(parts: list[AttachSpec]) -> str:
     """Attach parts onto studs of placed parts, in any direction (SNOT). Each new part's
     receiver (underside stud hole) `receiver` is pressed onto stud `stud` of part `to_id`;
-    the new part's top then faces the way that stud points, spun by `rot`. Parts are
+    the new part's top then faces the way that stud points, spun by `rot`; `turn` adds
+    any angle (a part held by a single stud can turn freely, e.g. 45 degrees). Parts are
     attached in order, so later ones can attach to earlier ones (use the ids returned by
     earlier calls). Collisions are checked against real part shapes."""
     m = _model()
@@ -334,7 +337,7 @@ def attach_parts(parts: list[AttachSpec]) -> str:
     ok, errors = [], []
     for spec in parts:
         try:
-            p = m.attach(spec.part, spec.color, spec.to_id, spec.stud, spec.receiver, spec.rot)
+            p = m.attach(spec.part, spec.color, spec.to_id, spec.stud, spec.receiver, spec.rot, spec.turn)
             ok.append(f"#{p.id} {p.part} " + ("tilted (follows its base)" if p.matrix is not None else f"facing {p.up}"))
         except (BuildError, ldraw.LDrawError) as e:
             errors.append(f"{spec.part} on #{spec.to_id} stud {spec.stud}: {e}")

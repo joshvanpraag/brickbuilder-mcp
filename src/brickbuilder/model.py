@@ -195,6 +195,15 @@ def _rot(axis: str, deg: float) -> np.ndarray:
     return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
 
 
+def _axis_rot(axis, deg: float) -> np.ndarray:
+    """Rotation by `deg` degrees about `axis` (any direction), same sense as `rot` steps."""
+    a = np.asarray(axis, float)
+    a = a / np.linalg.norm(a)
+    t = math.radians(deg)
+    k = np.array([[0, -a[2], a[1]], [a[2], 0, -a[0]], [-a[1], a[0], 0]])
+    return np.eye(3) + math.sin(t) * k + (1 - math.cos(t)) * (k @ k)
+
+
 def _free_geometry(p: Placement, pid: str, shape: catalog.Shape) -> Geometry:
     m = np.array(p.matrix, float).reshape(3, 3) if p.matrix is not None else orientation(p.up, p.rot)
     local = geometry.voxels(pid)
@@ -352,11 +361,15 @@ class Model:
         return p
 
     def attach(self, part: str, color: int | str, to_id: int, stud: int, receiver: int = 0,
-               rot: int | str | None = 0) -> Placement:
+               rot: int | str | None = 0, turn: float = 0) -> Placement:
         """Press one of the new part's receivers (underside stud holes) onto stud number
         `stud` of placed part `to_id`. The new part's top then faces the way that stud
         points; `rot` spins it about that direction. Works on tilted parts too (parts on
-        joints): the new part then follows the target's tilt."""
+        joints): the new part then follows the target's tilt.
+
+        `turn` adds any angle (degrees) about the stud, on top of `rot`: a part held by a
+        single stud can be turned freely, e.g. 45 degrees for a window on the angled face of
+        a bay. turn=90 is the same as rot=90. Only that one stud holds the part."""
         if to_id not in self.parts:
             raise BuildError(f"No part #{to_id}")
         tg = self._geom[to_id]
@@ -371,6 +384,14 @@ class Model:
             raise BuildError(f"{pid} has {len(recv)} receivers (0..{len(recv) - 1}), not {receiver}")
         spos, sdir = target[stud]
         r = parse_rot(rot)
+        turn = float(turn or 0) % 360
+        if turn and not math.isclose(turn % 90, 0, abs_tol=1e-9) and not math.isclose(turn % 90, 90, abs_tol=1e-9):
+            # any angle: turn about the stud's own axis, then press the receiver onto the stud
+            base = orientation(direction_name(sdir), r) if tg.axis_aligned else                 tg.matrix @ orientation(direction_name(geometry.studs(self.parts[to_id].part)[stud][1]), r)
+            m = _axis_rot(sdir, turn) @ base
+            pos = spos - m @ recv[receiver][0]
+            return self.add(pid, color, 0, 0, 0, r, "up", [float(v) for v in pos], matrix=m)
+        r = (r + round(turn)) % 360
         if tg.axis_aligned:
             up = direction_name(sdir)
             pos = spos - orientation(up, r) @ recv[receiver][0]
