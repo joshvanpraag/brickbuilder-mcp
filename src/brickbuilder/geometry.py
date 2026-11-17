@@ -342,17 +342,19 @@ def joints_full(part: str) -> tuple:
 _HINGE_KINDS = {"hinge_base", "hinge_top", "swivel_base", "swivel_top", "click_hinge_1", "click_hinge_2"}
 
 
-def _snap_joints(pid: str, have: list) -> list:
+def _snap_joints(pid: str, have: list, validate: bool = True) -> list:
     """Joints from the LDCad snap data that the detection above did not find: clips and
     bars it missed, Technic pins / pin holes / axles / axle holes, hinge fingers, and ball
-    joints on parts that have none yet. Nothing is added when the data is not installed."""
+    joints on parts that have none yet. Nothing is added when the data is not installed.
+    With `validate`, a joint is kept only if it matches the part's drawn shape
+    (snaps.plausible), so data that doesn't fit the LDraw model is ignored."""
     from . import snaps
     if not snaps.available():
         return []
-    out: list = []
+    out = _Checked(pid, validate)       # drops joints that don't match the part's shape
 
     def dup(kind, o, axis):
-        for k, o2, f2, _ in list(have) + out:
+        for k, o2, f2, _ in list(have) + list(out):
             if k == kind and np.linalg.norm(o2 - o) < 3 and (axis is None or abs(np.dot(f2[:, 0], axis)) > 0.98):
                 return True
         return False
@@ -417,7 +419,22 @@ def _snap_joints(pid: str, have: list) -> list:
             frame = np.stack([frame[:, 1], frame[:, 2], frame[:, 0]], 1)        # Z = stem axis
             if not dup(kind, s.pos, None):
                 out.append((kind, s.pos.copy(), frame, 0.0))
-    return out
+    return list(out)
+
+
+class _Checked(list):
+    """A list that only accepts joints passing the shape check."""
+
+    def __init__(self, pid: str, validate: bool):
+        super().__init__()
+        self.pid, self.validate = pid, validate
+
+    def append(self, joint) -> None:
+        if self.validate:
+            from . import snaps
+            if not snaps.plausible(self.pid, joint[0], joint[1])[0]:
+                return
+        super().append(joint)
 
 
 @functools.lru_cache(maxsize=4096)

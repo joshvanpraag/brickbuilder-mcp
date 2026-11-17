@@ -70,6 +70,22 @@ uv run python examples/organic_sculpting/snot_demo.py test.png
 ```
 It should print `overlaps []` and write `test.png`, a red block with a white dome on its front.
 
+## If something goes wrong
+
+- **`uv sync` says "Missing expected target directory for Python minor version link"**:
+  uv's shortcut to its Python copy is broken.
+  1. Open the folder `%APPDATA%\uv\python`.
+  2. Delete only the shortcut named `cpython-3.12-windows-x86_64-none`. Keep the folder whose name has the full version, like `cpython-3.12.13-…`.
+  3. Run `uv sync` again from PowerShell.
+- **A download script stops with "error: … is missing after extraction"**: the download was cut short or unpacked badly. Run the same script again.
+- **A test fails**: from the `brickbuilder-mcp` folder, run all three:
+  ```
+  uv run python tests/test_joints.py
+  uv run python tests/test_snaps.py
+  uv run python tests/test_part_search.py
+  ```
+  Then show Claude the output.
+
 ## Keeping the backup up to date
 
 Nothing goes to GitHub until it's committed and pushed. At the end of a work session, ask Claude:

@@ -8,6 +8,10 @@ mkdir -p data
 curl -L --fail -o data/ldcad_shadow.zip \
   https://github.com/RolandMelkert/LDCadShadowLibrary/archive/refs/heads/main.zip
 rm -rf data/ldcad_shadow data/LDCadShadowLibrary-main
-(cd data && unzip -oq ldcad_shadow.zip 'LDCadShadowLibrary-main/p/*' 'LDCadShadowLibrary-main/parts/*' \
-  'LDCadShadowLibrary-main/LICENSE.md' && mv LDCadShadowLibrary-main ldcad_shadow && rm ldcad_shadow.zip)
-echo "LDCad shadow library installed in data/ldcad_shadow"
+# extract everything (sub-folders such as parts/s included), then keep what we use
+(cd data && unzip -oq ldcad_shadow.zip && rm ldcad_shadow.zip && mkdir ldcad_shadow &&
+  mv LDCadShadowLibrary-main/p LDCadShadowLibrary-main/parts LDCadShadowLibrary-main/LICENSE.md ldcad_shadow/ &&
+  rm -rf LDCadShadowLibrary-main)
+n=$(find data/ldcad_shadow -name '*.dat' | wc -l)
+[ -d data/ldcad_shadow/parts/s ] || { echo "error: parts/s is missing after extraction" >&2; exit 1; }
+echo "LDCad shadow library installed in data/ldcad_shadow ($n files)"

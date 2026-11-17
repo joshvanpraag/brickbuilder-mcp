@@ -105,24 +105,40 @@ def _vec(s: str | None, n: int, default) -> np.ndarray:
 
 
 def _grid(spec: str | None) -> list[np.ndarray]:
-    """Offsets (in the snap's own X/Z plane) for [grid=[C] nx [C] nz sx sz]."""
+    """Offsets in the snap's own frame for a grid: 2D [grid=[C] nx [C] nz sx sz] (X/Z
+    plane) or 3D [grid=[C] nx [C] ny [C] nz sx sy sz]. C centres that axis's copies."""
     if not spec:
         return [np.zeros(3)]
     tok = spec.split()
-    try:
-        cx = tok[0].upper() == "C"
-        i = 1 if cx else 0
-        nx = int(float(tok[i]))
-        i += 1
-        cz = tok[i].upper() == "C"
-        i += 1 if cz else 0
-        nz = int(float(tok[i]))
-        sx, sz = float(tok[i + 1]), float(tok[i + 2])
-    except (IndexError, ValueError):
+    numbers = [t for t in tok if t.upper() != "C"]
+    dims = len(numbers) // 2                          # 4 numbers: X/Z grid, 6: X/Y/Z grid
+    if dims not in (2, 3) or len(numbers) != 2 * dims:
         return [np.zeros(3)]
-    xs = [(k - (nx - 1) / 2) * sx if cx else k * sx for k in range(max(nx, 1))]
-    zs = [(k - (nz - 1) / 2) * sz if cz else k * sz for k in range(max(nz, 1))]
-    return [np.array([x, 0.0, z]) for z in zs for x in xs]
+    counts, centred, steps = [], [], []
+    pending_c = False
+    try:
+        for t in tok:
+            if t.upper() == "C":
+                pending_c = True
+            elif len(counts) < dims:
+                counts.append(int(float(t)))
+                centred.append(pending_c)
+                pending_c = False
+            else:
+                steps.append(float(t))
+    except ValueError:
+        return [np.zeros(3)]
+    if dims == 2:                                     # 2D: X and Z
+        counts.insert(1, 1)
+        centred.insert(1, False)
+        steps.insert(1, 0.0)
+    if len(counts) != 3 or len(steps) != 3:
+        return [np.zeros(3)]
+    axes = []
+    for n, c, s in zip(counts, centred, steps):
+        n = max(n, 1)
+        axes.append([(k - (n - 1) / 2) * s if c else k * s for k in range(n)])
+    return [np.array([x, y, z]) for z in axes[2] for y in axes[1] for x in axes[0]]
 
 
 def _secs(spec: str) -> list[tuple[str, float, float]]:
@@ -190,7 +206,14 @@ def part_snaps(part: str) -> list[Snap]:
     """Every connection point of a part, in its local frame."""
     if not available():
         return []
-    return resolve_file(ldraw.normalize_part_id(part) + ".dat")
+    out, seen = [], set()
+    for s in resolve_file(ldraw.normalize_part_id(part) + ".dat"):
+        key = (s.type, s.gender, *np.round(s.pos, 1), *np.round(s.axis, 2),   # direction matters: a pin has two halves
+               str(s.params.get("secs") or s.params.get("bounding") or s.params.get("radius")))
+        if key not in seen:                       # the same connector included twice
+            seen.add(key)
+            out.append(s)
+    return out
 
 
 # ---------------------------------------------------------------- classification
@@ -225,6 +248,11 @@ def classify(s: Snap) -> str:
         return "bar_hole"
     if secs[0][0] == "S" or (len(secs) == 1 and secs[0][2] <= 4.5):
         return "antistud"
+    # a brick's underside: one plain round section, closed at one end, where studs go in.
+    # Technic pin holes go right through (centred) or have a collar recess (more sections).
+    centred = str(s.params.get("center", "")).lower() == "true"
+    if len(secs) == 1 and not centred and s.params.get("caps", "one") == "one":
+        return "antistud"
     return "pin_hole"
 
 
@@ -235,3 +263,61 @@ def summary(part: str) -> dict[str, int]:
         k = classify(s)
         out[k] = out.get(k, 0) + 1
     return out
+
+
+# ---------------------------------------------------------------- shape check
+
+# largest allowed distance from the joint centre to the part's surface (LDU)
+NEAR = {"bar": 6.5, "pin": 9, "axle": 9, "clip": 8, "ball": 11, "socket": 12, "large_ball": 16,
+        "large_socket": 16, "finger_m": 12, "finger_f": 12, "pin_hole": 9.5, "axle_hole": 9.5}
+
+
+@functools.lru_cache(maxsize=512)
+def _tris(pid):
+    from . import geometry
+    polys = geometry.load(pid).polys
+    if not len(polys):
+        return np.zeros((0, 3, 3))
+    return np.concatenate([polys[:, [0, 1, 2]], polys[:, [0, 2, 3]]])
+
+
+def surface_distance(p, tris):
+    """Distance from point p to the nearest triangle (vectorised, exact)."""
+    if not len(tris):
+        return 1e9
+    a, b, c = tris[:, 0], tris[:, 1], tris[:, 2]
+    ab, ac, ap = b - a, c - a, p - a
+    d1, d2 = (ab * ap).sum(1), (ac * ap).sum(1)
+    bp = p - b
+    d3, d4 = (ab * bp).sum(1), (ac * bp).sum(1)
+    cp = p - c
+    d5, d6 = (ab * cp).sum(1), (ac * cp).sum(1)
+    va = d3 * d6 - d5 * d4
+    vb = d5 * d2 - d1 * d6
+    vc = d1 * d4 - d3 * d2
+    denom = va + vb + vc
+    denom = np.where(np.abs(denom) < 1e-12, 1e-12, denom)
+    v, w = vb / denom, vc / denom
+    closest = a + ab * v[:, None] + ac * w[:, None]
+    # fall back to the nearest vertex where the projection leaves the triangle
+    outside = (v < 0) | (w < 0) | (v + w > 1)
+    dist = np.linalg.norm(closest - p, axis=1)
+    vert = np.min(np.stack([np.linalg.norm(a - p, axis=1), np.linalg.norm(b - p, axis=1),
+                            np.linalg.norm(c - p, axis=1)]), 0)
+    # and the nearest point on each edge
+    def seg(u, v_):
+        t = np.clip(((p - u) * (v_ - u)).sum(1) / np.maximum(((v_ - u) ** 2).sum(1), 1e-12), 0, 1)
+        return np.linalg.norm(u + (v_ - u) * t[:, None] - p, axis=1)
+    edge = np.min(np.stack([seg(a, b), seg(b, c), seg(c, a)]), 0)
+    return float(np.where(outside, np.minimum(vert, edge), dist).min())
+
+
+
+def plausible(pid: str, kind: str, origin) -> tuple[bool, float]:
+    """Does a snap-derived joint match the part's drawn shape? The surface must be about
+    one connector radius from its centre, and a hole's centre must be open."""
+    d = surface_distance(np.asarray(origin, float), _tris(pid))
+    ok = d <= NEAR.get(kind, 10)
+    if kind in ("pin_hole", "axle_hole"):
+        ok = ok and d >= 2.0
+    return ok, d

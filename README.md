@@ -237,6 +237,13 @@ fingers to about 2,500. `part_info` lists every connector a part has, and `find_
 can search by them (tags `pin`, `pin_hole`, `axle`, `axle_hole`, `hinge_fingers`). Without
 the download, everything else still works; those joints just aren't there.
 
+Each of these joints is checked against the part's drawn shape before it is used (the
+surface must sit about one connector radius from the joint, and a hole must be open), so
+data that doesn't fit the LDraw model is ignored. `uv run python scripts/audit_snap_joints.py`
+reports how many of each kind are kept and dropped, and on which parts. Every bar, pin,
+axle and ball passes. About 98% of pin holes and 94% of axle holes pass, and the ones
+dropped are mostly on Duplo, electric, train and minifig parts.
+
 ### Finding parts
 
 The LDraw library has about 25,000 part files (including printed variants), but a part
