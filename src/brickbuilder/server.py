@@ -74,6 +74,11 @@ Joints, for posed, organic models (modules at any angle, not just 90 degree step
   end for end. At bend 0 the clip part stands opposite the bar's part, the same way up.
 - Turntables, any angle (bend) about the vertical axis: 3403 + 3404, 3680 + 3679, and the
   flat base 61485 under a round plate with snapstud (60474, 11213, 74611, 89523, 87081).
+- Technic and more, from the LDCad snap data (scripts/fetch_ldcad_snaps.sh): pins into pin
+  holes (bend turns the pin, flip turns it end for end), axles into axle holes (90 degree
+  steps) or round pin holes (any angle), axles slide through holes, hinge fingers
+  (finger_m into finger_f), and clips, bars and balls on parts LDraw draws without a
+  recognisable primitive. part_info lists every connector a part has.
 - list_joints(id) lists a placed part's joints and what is connected to each.
 - attach_joint connects a new part's joint to a placed part's joint. For a ball joint,
   bend / swing tilt it (up to 45 degrees combined) and twist turns it about its axis;
@@ -333,10 +338,13 @@ def list_studs(id: int, free_only: bool = False) -> str:
 def attach_joint(parts: list[JointSpec]) -> str:
     """Connect parts by joints at any angle. Each new part's joint `joint` goes onto joint
     `to_joint` of placed part `to_id`: ball into socket (joint-8, towball, large 2x2 ball),
-    clip onto bar, or one half of a hinge, hinge plate or turntable onto the other. Ball
+    clip onto bar, pin or axle into a hole, hinge fingers into each other, or one half of a
+    hinge, hinge plate or turntable onto the other. Ball
     joints: bend and swing tilt the new part (45 degrees combined, 60 for towballs), twist
     turns it about the joint axis. Hinges, clips and turntables: bend is the angle about the
-    axis; a clip also takes slide (LDU along the bar) and flip.
+    axis; a clip also takes slide (LDU along the bar) and flip. Pins and axles: bend turns
+    them in the hole (axles in cross holes: 90 degree steps), flip turns them end for end,
+    slide moves an axle along a hole.
     Then attach_parts onto the tilted part to build the module outward; everything on it
     follows the tilt. Collisions are checked against real part shapes."""
     m = _model()
@@ -415,6 +423,11 @@ def part_info(part: str) -> str:
         lines.append("shape: width in studs at 4 heights, bottom to top: " + " -> ".join(f"{v:g}" for v in w))
     if shape and shape.get("tags"):
         lines.append("tags: " + ", ".join(shape["tags"]))
+    from . import snaps
+    if snaps.available():
+        conn = snaps.summary(pid)
+        if conn:
+            lines.append("connectors (LDCad snap data): " + ", ".join(f"{n} {k}" for k, n in sorted(conn.items())))
     return "\n".join(lines)
 
 
@@ -438,10 +451,11 @@ def find_parts(query: str = "", footprint: str | None = None, height: str | None
     tags: all must match, from: round, narrows_upward, widens_upward, curved, slope,
       inverted, dome, cone, wedge, arch, tile, quarter, corner, half, smooth_top,
       side_studs, down_studs, no_underside, bracket, hinge, clip, bar, ball, socket,
-      technic, offset, printed.
+      technic, offset, printed, pin, pin_hole, axle, axle_hole, hinge_fingers.
     joints: joint kinds the part must have, any of: ball, socket, towball, towball_socket,
       large_ball, large_socket, hinge_base, hinge_top, clip, bar, swivel_base, swivel_top,
-      click_hinge_1, click_hinge_2, turntable_base, turntable_top, flat_turntable, snapstud.
+      click_hinge_1, click_hinge_2, turntable_base, turntable_top, flat_turntable, snapstud,
+      pin, pin_hole, axle, axle_hole, finger_m, finger_f.
     bottom_width / top_width: the part's width in studs at its bottom / top quarter, a
       number or range ('1-2'), to find parts that taper or flare between two sizes.
     Each result: id, footprint and height, width bottom->top, tags, connectors, name."""

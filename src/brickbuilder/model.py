@@ -397,12 +397,14 @@ class Model:
         if tkind not in geometry.BALL_KINDS and (swing or twist):
             raise BuildError(f"a {tkind} joint only turns about its axis: use bend, not swing/twist")
         if slide and tkind not in geometry.SLIDE_KINDS:
-            raise BuildError("slide only applies to a clip on a bar")
-        if flip and tkind not in geometry.SLIDE_KINDS:
-            raise BuildError("flip only applies to a clip on a bar")
+            raise BuildError("slide only applies to a clip on a bar or an axle in a hole")
+        if flip and tkind not in geometry.FLIP_KINDS:
+            raise BuildError("flip only applies to a clip on a bar, or a pin or axle in a hole")
+        if {tkind, nkind} == {"axle", "axle_hole"} and abs(bend) % 90 > 1e-6:
+            raise BuildError("an axle in a cross-shaped axle hole only turns in 90 degree steps")
         room = max(tslide, nslide)
         if abs(slide) > room + 1e-6:
-            raise BuildError(f"the clip can slide {room:g} LDU each way on this bar, not {slide:g}")
+            raise BuildError(f"it can slide {room:g} LDU each way here, not {slide:g}")
         if tkind in geometry.BALL_KINDS:
             user = _rot("x", bend) @ _rot("y", swing) @ _rot("z", twist)
             tilt = math.degrees(math.acos(max(-1.0, min(1.0, user[2, 2]))))
@@ -421,7 +423,7 @@ class Model:
             m = frame @ _rot("x", bend) @ nframe.T
         pos = centre - m @ origin
         if slide:
-            if tkind == "bar":   # the clip moves along the placed bar
+            if tkind in geometry.MALE_SLIDE_KINDS:   # the new part moves along the placed bar / axle
                 pos = pos + slide * frame[:, 0]
             else:                # the new bar moves through the placed clip
                 pos = pos - slide * (m @ nframe[:, 0])

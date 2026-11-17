@@ -18,6 +18,7 @@ This guide is for someone who doesn't write code. It gets the whole tool, plus e
 
 **Not in the backup (on purpose):**
 - **The LEGO parts library** (`data/ldraw`, about 145 MB): it's free, and setup re-downloads it.
+- **The LDCad connection data** (`data/ldcad_shadow`) and the part search index (`data/part_index.json`): setup downloads or rebuilds them.
 - **Saved models** (`models/`): `.ldr` files you want to keep belong in `examples/`.
 - **Claude's private memory notes** on your computer: the important lessons are copied into `docs/organic_sculpting.md`.
 
@@ -44,13 +45,16 @@ Claude will install what's missing and run the steps below. Approve its prompts 
    git clone https://github.com/joshvanpraag/brickbuilder-mcp.git
    cd brickbuilder-mcp
    ```
-4. **Download the LEGO parts library and set up Python.** This takes a few minutes:
+4. **Download the LEGO parts library and connection data, and set up Python.** This takes a few minutes:
    ```
    bash scripts/fetch_ldraw.sh
+   bash scripts/fetch_ldcad_snaps.sh
    uv sync
    uv run python scripts/build_part_index.py
    ```
-   The last command builds the part search index (a few minutes). It isn't backed up because it is rebuilt from the parts library.
+   - The second command downloads the LDCad connection data (about 2 MB). It lets the tool join pins, axles, clips and hinges.
+   - The last command builds the part search index (a few minutes).
+   - None of these are backed up, because they're downloaded or rebuilt.
 5. **Tell Claude about the tool:**
    ```
    claude mcp add brickbuilder -s user -- uv --directory "$(pwd -W)" run brickbuilder-mcp

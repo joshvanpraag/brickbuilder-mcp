@@ -41,8 +41,12 @@ VOXEL = 4.0  # LDU; 1 stud = 5 voxels, 1 plate = 2 voxels
 #   hinge (3937 / 6134), swivel hinge plates and turntables are "aligned": at angle 0 the
 #   two frames coincide, which is the assembled position LDraw draws them in.
 BALL_KINDS = {"ball", "socket", "towball", "towball_socket", "large_ball", "large_socket"}
-OPPOSED_KINDS = {"clip", "bar", "click_hinge_1", "click_hinge_2"}
-SLIDE_KINDS = {"clip", "bar"}
+# pin / pin_hole / axle / axle_hole and finger_m / finger_f come from the LDCad snap data
+# (snaps.py), as do clips and bars that LDraw draws without a recognisable primitive.
+OPPOSED_KINDS = {"clip", "bar", "click_hinge_1", "click_hinge_2", "pin", "pin_hole", "axle", "axle_hole"}
+SLIDE_KINDS = {"clip", "bar", "axle", "axle_hole", "pin_hole"}
+FLIP_KINDS = SLIDE_KINDS | {"pin"}
+MALE_SLIDE_KINDS = {"bar", "axle"}          # slide moves the other part along these
 # Largest tilt (degrees, bend and swing combined) each ball system allows.
 BALL_TILT = {"ball": 45, "socket": 45, "towball": 60, "towball_socket": 60,
              "large_ball": 45, "large_socket": 45}
@@ -51,7 +55,8 @@ CLIP_WIDTH = 8.0  # LDU of bar a clip grips
 _PAIRS = [("ball", "socket"), ("towball", "towball_socket"), ("large_ball", "large_socket"),
           ("hinge_base", "hinge_top"), ("clip", "bar"), ("swivel_base", "swivel_top"),
           ("click_hinge_1", "click_hinge_2"), ("turntable_base", "turntable_top"),
-          ("turntable2_base", "turntable2_top"), ("flat_turntable", "snapstud")]
+          ("turntable2_base", "turntable2_top"), ("flat_turntable", "snapstud"),
+          ("pin", "pin_hole"), ("axle", "axle_hole"), ("axle", "pin_hole"), ("finger_m", "finger_f")]
 JOINT_PAIRS = {p for a, b in _PAIRS for p in ((a, b), (b, a))}
 
 # Joint primitives by file name: (kind, centre, axis) in the primitive's frame. For ball
@@ -330,7 +335,89 @@ def joints_full(part: str) -> tuple:
         out.append((k, o, f, 0.0))
     for o, a, s in _pair_handles(ends) + (_plain_bars(pid) if pid not in _JOINT_OVERRIDES else []):
         out.append(("bar", o, _fit_frame(pid, o, a), s))
+    out += _snap_joints(pid, out)
     return tuple(out)
+
+
+_HINGE_KINDS = {"hinge_base", "hinge_top", "swivel_base", "swivel_top", "click_hinge_1", "click_hinge_2"}
+
+
+def _snap_joints(pid: str, have: list) -> list:
+    """Joints from the LDCad snap data that the detection above did not find: clips and
+    bars it missed, Technic pins / pin holes / axles / axle holes, hinge fingers, and ball
+    joints on parts that have none yet. Nothing is added when the data is not installed."""
+    from . import snaps
+    if not snaps.available():
+        return []
+    out: list = []
+
+    def dup(kind, o, axis):
+        for k, o2, f2, _ in list(have) + out:
+            if k == kind and np.linalg.norm(o2 - o) < 3 and (axis is None or abs(np.dot(f2[:, 0], axis)) > 0.98):
+                return True
+        return False
+
+    kinds_have = {k for k, *_ in have}
+    centre = None
+    for s in snaps.part_snaps(pid):
+        name = snaps.classify(s)
+        y = s.axis / (np.linalg.norm(s.axis) or 1)
+        if name in ("bar", "pin", "pin_hole", "axle", "axle_hole"):
+            secs = s.params.get("secs") or []
+            total = sum(length for _, _, length in secs)
+            start = -total / 2 if str(s.params.get("center", "")).lower() == "true" else 0.0
+            # the part of the cylinder that goes into the other part (not a pin's collar)
+            spans, t = [], start
+            for shape, r, length in secs:
+                if name != "pin" or r <= 6.6:
+                    spans.append((t, t + length))
+                t += length
+            if not spans:
+                continue
+            a, b = spans[0][0], spans[-1][1]
+            o = s.pos - y * (a + b) / 2                  # cylinders run along the snap's -Y
+            length = b - a
+            if name == "bar" and length < CLIP_WIDTH - 0.5:
+                continue                                 # too short to clip (a stud's core)
+            if dup(name, o, y):
+                continue
+            slide = max(0.0, (length - (CLIP_WIDTH if name == "bar" else 20.0)) / 2) \
+                if name in ("bar", "axle") else 0.0
+            out.append((name, o, _fit_frame(pid, o, y), slide))
+        elif name == "clip":
+            length = float(s.params.get("length", CLIP_WIDTH) or CLIP_WIDTH)
+            centred = str(s.params.get("center", "")).lower() == "true"
+            o = s.pos if centred else s.pos - y * length / 2
+            if not dup("clip", o, y):
+                out.append(("clip", o, _fit_frame(pid, o, y), 0.0))
+        elif name == "finger" and not (kinds_have & _HINGE_KINDS):
+            kind = "finger_m" if s.gender == "M" else "finger_f"
+            frame = np.stack([s.frame[:, 1], s.frame[:, 2], s.frame[:, 0]], 1)   # X = finger axis
+            frame = np.stack([c / (np.linalg.norm(c) or 1) for c in frame.T], 1)
+            if not dup(kind, s.pos, frame[:, 0]):
+                out.append((kind, s.pos.copy(), frame, 0.0))
+        elif name in ("ball", "ball_socket") and not (kinds_have & BALL_KINDS):
+            try:
+                r = float(s.params.get("bounding", "").split()[1])
+            except (IndexError, ValueError):
+                continue
+            if r <= 9:
+                kind = "ball" if name == "ball" else "socket"
+            elif 11.5 <= r <= 14:
+                kind = "large_ball" if name == "ball" else "large_socket"
+            else:
+                continue
+            if centre is None:
+                v = voxels(pid)
+                centre = v.mean(0) if len(v) else np.zeros(3)
+            z = centre - s.pos                           # from the ball back into the part
+            if np.linalg.norm(z) < 1:
+                continue
+            frame = _axis_frame(z / np.linalg.norm(z))
+            frame = np.stack([frame[:, 1], frame[:, 2], frame[:, 0]], 1)        # Z = stem axis
+            if not dup(kind, s.pos, None):
+                out.append((kind, s.pos.copy(), frame, 0.0))
+    return out
 
 
 @functools.lru_cache(maxsize=4096)

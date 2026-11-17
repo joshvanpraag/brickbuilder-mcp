@@ -58,8 +58,10 @@ def test_every_family_is_detected():
         for p in parts:
             pid = "60470a" if p == "60470" else p
             assert kind in _kinds(pid), (p, _kinds(pid))
-    assert _kinds("60470a") == ["clip", "clip"]
-    assert _kinds("17114") == ["large_ball", "large_ball"]
+    # Technic holes from the LDCad snap data come on top of these
+    snap_only = {"pin", "pin_hole", "axle", "axle_hole", "finger_m", "finger_f"}
+    assert [k for k in _kinds("60470a") if k not in snap_only] == ["clip", "clip"]
+    assert [k for k in _kinds("17114") if k not in snap_only] == ["large_ball", "large_ball"]
 
 
 def test_bar_slide_ranges():

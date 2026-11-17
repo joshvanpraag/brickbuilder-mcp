@@ -36,6 +36,7 @@ Needs Python 3.11+, [uv](https://docs.astral.sh/uv/), `curl` and `unzip`.
 git clone https://github.com/ElRashoMacuin24/brickbuilder-mcp.git
 cd brickbuilder-mcp
 scripts/fetch_ldraw.sh   # downloads the LDraw parts library (~145 MB zip) into data/ldraw
+scripts/fetch_ldcad_snaps.sh   # connection data for pins, axles, clips, hinges (~2 MB)
 uv sync
 uv run python scripts/build_part_index.py   # part search index (a few minutes, once)
 claude mcp add brickbuilder -s user -- uv --directory "$PWD" run brickbuilder-mcp
@@ -188,6 +189,9 @@ Each kind of joint only connects to its own partner; the tool says so if you mix
 | Locking hinge plate | 44301a | 44302a | `bend` = fold angle (negative folds up) |
 | Clip on a bar | a bar: handles 60478, 48336, 2540, 26047 or plain bars like 87994 | a clip: 61252, 63868, 60470, 15712, 11090, 11476 | `bend` = angle round the bar, `slide` = move along the bar (LDU, 20 = one stud), `flip` = turn end for end |
 | Turntable | 3403 (4x4), 3680 (2x2), 61485 (flat 4x4) | 3404, 3679, or a round plate with snapstud (60474, 11213, 74611, 89523, 87081) on 61485 | `bend` = turn about the vertical axis |
+| Technic pin | a part with a pin hole (beams, bricks with holes such as 3700, liftarms) | a pin: 2780, 6558, or any part with a pin (32054 ...) | `bend` = turn the pin in the hole, `flip` = turn end for end |
+| Technic axle | a part with an axle hole (cross hole) or a round pin hole | an axle: 3705 and other axles, or parts with an axle | `bend` = turn (90 degree steps in a cross hole, any angle in a round hole), `slide` = move along the hole |
+| Hinge fingers | a part with hinge fingers (finger_m) | the matching part (finger_f) | `bend` = hinge angle |
 
 Either part can be placed first: a clip can go onto a placed bar, or a bar through a
 placed clip.
@@ -217,8 +221,21 @@ A turntable top turned 30 degrees on its base 3403 (#1):
 attach_joint(parts=[{"part": "3404", "color": "red", "to_id": 1, "bend": 30}])
 ```
 
-Not supported yet: 48729a / 48729b (bar with clip). Their clip is drawn without the
-usual clip shape, so only their bar end can be used.
+A Technic pin (2780) pushed into a brick with a hole (3700, #1):
+
+```json
+attach_joint(parts=[{"part": "2780", "color": "black", "to_id": 1, "to_joint": 0, "joint": 0}])
+```
+
+**Where the Technic, finger and extra clip/bar joints come from:** the
+[LDCad shadow library](https://github.com/RolandMelkert/LDCadShadowLibrary) lists every
+connection point (stud, hole, bar, clip, pin, axle, ball, hinge finger) of about 3,400 parts
+and primitives. `scripts/fetch_ldcad_snaps.sh` downloads it into `data/ldcad_shadow`, and the
+server adds those connections to any part where its own detection found none. It adds bars
+to about 1,700 parts, clips to about 150, and pins, pin holes, axles, axle holes and hinge
+fingers to about 2,500. `part_info` lists every connector a part has, and `find_parts`
+can search by them (tags `pin`, `pin_hole`, `axle`, `axle_hole`, `hinge_fingers`). Without
+the download, everything else still works; those joints just aren't there.
 
 ### Finding parts
 
@@ -311,6 +328,9 @@ your user's permissions, so review tool calls as you would any other file access
 Code: MIT (see `LICENSE`). Parts geometry comes from the
 [LDraw parts library](https://www.ldraw.org), which is downloaded separately and is
 licensed CC BY 2.0 by its authors; it is not included in this repository.
+Connection (snap) data comes from the
+[LDCad shadow library](https://github.com/RolandMelkert/LDCadShadowLibrary) by Roland
+Melkert, licensed CC BY-SA 4.0; it is also downloaded separately, not included here.
 
 The reference stills shown next to the builds are from *The Phoenician Scheme* (2025),
 *The Big Lebowski* (1998) and *The Lord of the Rings: The Two Towers* (2002). They are

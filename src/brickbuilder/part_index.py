@@ -25,7 +25,7 @@ import numpy as np
 
 from . import ldraw
 
-INDEX_VERSION = 1
+INDEX_VERSION = 2
 
 
 def index_path() -> Path:
@@ -87,6 +87,10 @@ def _shape(pid: str) -> dict:
                     "down": dirs.count("down")}
     out["receivers"] = len(geometry.receivers(pid))
     out["joints"] = sorted({j[0] for j in geometry.joints(pid)})
+    from . import snaps
+    conn = snaps.summary(pid) if snaps.available() else {}
+    if conn:
+        out["connectors"] = conn
     pts = np.asarray(geometry.samples(pid), float)
     tags = set()
     if len(pts) >= 8:
@@ -122,6 +126,9 @@ def _shape(pid: str) -> dict:
                 tags.add("widens_upward")
     if out["studs"]["side"]:
         tags.add("side_studs")
+    for k in ("pin", "pin_hole", "axle", "axle_hole", "clip", "bar", "finger", "ball", "ball_socket"):
+        if out.get("connectors", {}).get(k):
+            tags.add({"finger": "hinge_fingers", "ball_socket": "socket"}.get(k, k))
     if out["studs"]["down"]:
         tags.add("down_studs")
     if not out["studs"]["up"]:
@@ -176,7 +183,7 @@ def build(workers: int | None = None, progress=print) -> Path:
         if rec.get("kind") == "print":
             base = records.get(rec.get("base", ""))
             if base and "size" in base:
-                for k in ("size", "studs", "receivers", "joints", "widths"):
+                for k in ("size", "studs", "receivers", "joints", "widths", "connectors"):
                     if k in base:
                         rec[k] = base[k]
                 rec["tags"] = sorted(set(base.get("tags", [])) | {"printed"})
