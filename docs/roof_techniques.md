@@ -55,6 +55,14 @@ corner pieces, and studs showed on every flat bit.
   (pad the distance field with a virtual strip ahead of the gable), so the rings run straight
   into the back of the gable instead of sloping down toward it. That gives a clean
   cross-gable; sloping toward the gable leaves garbled triangles beside it.
+- **Odd-length ridges.** Pairing 3043s two rows at a time leaves one row over on a ridge of
+  odd length. Cover it with the one-row double slope 3044c (made in dark blue; rot 90 when
+  the slopes face the sides). Run this pass after the ridge-end pass, or it takes cells the
+  end pieces need.
+- **Where a ridge runs into a slope** (a wing's ridge meeting the side of the main roof)
+  there is a T-junction with nothing higher to lean a slope on, so no slope fits. If the cell
+  is in the top course it is level with the flat top: tile it and it becomes part of the
+  finished top.
 - **Hidden core colour.** Use the roof colour for the core: round parts on the roof (a round
   plate under a cone) leave their corners open, and the core shows through.
 

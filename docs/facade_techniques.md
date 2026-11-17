@@ -43,6 +43,14 @@ window is in roughly the right place. Generate them instead:
   trim-colour top course and a tile, and put a window in the middle. Scanned gables come out
   lumpy and lopsided.
 
+- **Square the outer corners.** Scans often round a building's corners off, leaving a
+  one-stud notch up the whole wall. Fill only the corners of the building's bounding box.
+  A general "fill any corner" rule cannot tell an outer corner from the inside corner of a
+  courtyard, and it will fill the courtyard in.
+- **Stay true to the model.** Borrow techniques from other builds, not features: a porch or
+  rotunda the real building doesn't have reads as out of place. A framed door with tan
+  jambs, an arch and a keystone gives the entrance an accent instead.
+
 ## Rules of thumb
 
 - **Trim should be deliberate.** Tan or cream only where the building has a band, sill,
