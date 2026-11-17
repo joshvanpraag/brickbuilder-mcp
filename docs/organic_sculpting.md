@@ -80,3 +80,5 @@ Check every build with `check_colors`. Many shaping parts were only made in a fe
 - turntables.
 
 The server supports all of these now.
+
+[round_shapes_techniques.md](round_shapes_techniques.md) covers the Lowell sphere (a ball from six identical plate caps), studs-out surfaces, and round plates fanned along a rod for a smooth bend.

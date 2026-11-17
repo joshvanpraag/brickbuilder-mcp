@@ -14,6 +14,7 @@ This guide is for someone who doesn't write code. It gets the whole tool, plus e
 | `examples/organic_sculpting/` | Reusable helpers for curvy, character-style builds, with demos. |
 | `docs/organic_sculpting.md` | What we learned about making LEGO look organic. |
 | `docs/reference_builds_techniques.md` | Notes from the MF DOOM, 31133 and rabbit-mech builds. |
+| `docs/round_shapes_techniques.md` | The Lowell sphere and other ways to build round shapes. |
 | `docs/vehicle_builds_techniques.md` | Notes from two minifig-scale car builds (wheels, side panels, lights). |
 | `examples/vehicles/` | A small demo of putting wheels on a car chassis. |
 | `README.md` | What the tool does, and every tool it gives Claude. |
@@ -91,6 +92,7 @@ To check wheels too, run `uv run python examples/vehicles/wheels_demo.py wheels.
   uv run python tests/test_strength.py
   uv run python tests/test_rebrickable.py
   uv run python tests/test_wheels.py
+  uv run python tests/test_lowell_sphere.py
   ```
   Then show Claude the output.
 
