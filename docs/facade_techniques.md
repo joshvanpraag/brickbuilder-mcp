@@ -78,8 +78,10 @@ window is in roughly the right place. Generate them instead:
   - place the angled parts by exact position and direction (`attach_parts` with `turn`, or
     `ldu` and a matrix);
   - tie the back columns into the wall with a plate across the bay's back row;
-  - close the top with tiles on the angled ring (no studs) and a lid plate held by the front
-    ring.
+  - close the top with tiles on the angled ring (no studs) and a lid held by the front ring,
+    shaped like the bay: a plain rectangle sitting on a three-sided bay looks wrong. Two 3x3
+    cut-corner plates (2450) with a plate between them give a lid 4 studs wide at the front
+    that widens along 45 degree sides; triangular tiles (35787) finish the cut corners.
   This needs depth: the bay stands out about 2.2 studs from its back columns. A shallow bay
   (1 stud) between pilasters cannot do it; keep that one round.
 - **Taller parts over stacks of plates.** Where a gap is 3 plates or more, use a brick (or a
