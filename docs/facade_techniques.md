@@ -85,6 +85,10 @@ window is in roughly the right place. Generate them instead:
   rot 270 puts it front-left. The 3x3 plate 30357 has its rounded corner back-right at rot 0,
   so use rot 270 for front-right and 180 for front-left.
 - **Masonry 98283:** the profile faces front at rot 0, back at 180, right at 90, left at 270.
+- **Find the right curve by shape, not name:** `find_parts(tags=["half_round"], ...)` or
+  `tags=["quarter_round"]`. Many curved parts have near-identical names; the tags are measured
+  from each part's real geometry. Still look at the render: a lopsided or cut-off shape on a
+  visible accent means the wrong part.
 - **Check colours early.** Many of these parts were made in few colours: the curved corner
   window 73878 only in white or dark blue, glass 60602 only clear, trans-black or gray.
   `find_parts(color=...)` and `check_colors` tell you.

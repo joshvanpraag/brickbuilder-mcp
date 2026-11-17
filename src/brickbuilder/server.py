@@ -483,7 +483,8 @@ def find_parts(query: str = "", footprint: str | None = None, height: str | None
       studs), 'tapered' (narrows upward), 'flared' (widens upward), 'printed'.
     footprint: 'AxB' in studs, either orientation. height: plates, '3' or a range '2-6'.
     tags: all must match, from: round, narrows_upward, widens_upward, curved, slope,
-      inverted, dome, cone, wedge, arch, tile, quarter, corner, half, smooth_top,
+      inverted, dome, cone, wedge, arch, tile, quarter, corner, half, half_round,
+      quarter_round, ridge, smooth_top,
       side_studs, down_studs, no_underside, bracket, hinge, clip, bar, ball, socket,
       technic, offset, printed, pin, pin_hole, axle, axle_hole, hinge_fingers.
     joints: joint kinds the part must have, any of: ball, socket, towball, towball_socket,

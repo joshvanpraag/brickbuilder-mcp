@@ -21,6 +21,17 @@ def test_shape_analysis():
     assert part_index._analyse("14769p0d")["kind"] == "print"
 
 
+def test_profile_tags():
+    # measured from the real shape, not the name: these look alike but are not
+    assert part_index._profile_tags("79756") == {"half_round"}     # 1x4 x 2/3 curved top
+    assert part_index._profile_tags("3563") == {"half_round"}      # 1x2 x 2/3 curved top
+    assert part_index._profile_tags("37352") == {"quarter_round"}  # 1x2 curved top: one edge only
+    assert part_index._profile_tags("3044c") == {"ridge"}          # straight double slope
+    assert part_index._profile_tags("3043") == {"ridge"}
+    for plain in ("3040b", "3039", "3001", "3069b", "3941", "93273"):
+        assert not part_index._profile_tags(plain) & {"half_round", "quarter_round"}, plain
+
+
 def test_search():
     assert part_index.available(), "build the index first: scripts/build_part_index.py"
     assert "3941" in ids(part_index.search("round brick", footprint="2x2", height="3"))
@@ -42,6 +53,6 @@ def test_preview_and_info():
 
 
 if __name__ == "__main__":
-    for t in (test_shape_analysis, test_search, test_preview_and_info):
+    for t in (test_shape_analysis, test_profile_tags, test_search, test_preview_and_info):
         t()
         print("ok", t.__name__)

@@ -84,6 +84,12 @@ To check wheels too, run `uv run python examples/vehicles/wheels_demo.py wheels.
   2. Delete only the shortcut named `cpython-3.12-windows-x86_64-none`. Keep the folder whose name has the full version, like `cpython-3.12.13-…`.
   3. Run `uv sync` again from PowerShell.
 - **A download script stops with "error: … is missing after extraction"**: the download was cut short or unpacked badly. Run the same script again.
+- **find_parts doesn't know a tag such as `half_round`, or the part search test fails after
+  updating the tool**: the saved part index is older than the tool. Rebuild it (a few
+  minutes), then restart Claude:
+  ```
+  uv run python scripts/build_part_index.py
+  ```
 - **A test fails**: from the `brickbuilder-mcp` folder, run them all:
   ```
   uv run python tests/test_joints.py

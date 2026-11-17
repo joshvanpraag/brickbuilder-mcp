@@ -313,10 +313,15 @@ size, connectors and shape, so you can ask for what you need rather than its nam
   that flare out going up, from about 2 studs wide at the bottom to 2-4 at the top.
 - `find_parts(query="snot", height="3")`: bricks with studs on their sides, one brick tall.
 - `find_parts(query="eye closed", include_prints=True)`: printed parts (hidden unless asked).
+- `find_parts(tags=["half_round"], footprint="1x4", color="tan")`: a 1-stud-wide half-round
+  for a column face, in a colour it was really made in.
 
 Shape tags come from each part's real geometry: `round` (round cross-section),
 `narrows_upward` / `widens_upward` (width at the top vs the bottom), `smooth_top` (no
-top studs), `side_studs`, `down_studs`, `no_underside`. Further tags come from words in
+top studs), `side_studs`, `down_studs`, `no_underside`, and the shape of the top across
+the part's short side: `half_round` (a half cylinder, e.g. 79756, 3563), `quarter_round`
+(curved down one edge only, e.g. 37352, which looks like a half-round in a parts list but
+isn't) and `ridge` (two straight slopes meeting, e.g. 3043, 3044c). Further tags come from words in
 the name: `curved`, `slope`, `inverted`, `dome`, `cone`, `wedge`, `arch`, `tile`,
 `quarter`, `corner`, `bracket`, `hinge`, `clip`, `bar`, `ball`, `socket`.
 

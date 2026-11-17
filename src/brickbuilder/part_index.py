@@ -74,6 +74,56 @@ def _meta(pid: str) -> tuple[str, str | None, list[str]]:
     return title, cat, keys
 
 
+def _profile_tags(pid: str) -> set[str]:
+    """Shape of the top surface across the part, from its column heights:
+    half_round    - curved, symmetric, highest in the middle, across the part's short side
+                    (a half cylinder lying along the part: 79756, 3563)
+    quarter_round - curved, highest at one edge and falling to the other, across the short
+                    side (37352, which looks like a half-round but is not)
+    ridge         - two straight slopes meeting in the middle, either way round (3044c, 3043)
+    The top must stay nearly level along the other axis, so domes and cones (round both ways)
+    are left out, and a curve that runs along a part's length (an arch) is not a round."""
+    from . import geometry
+    xs, zs, yt, _ = geometry._columns(pid)
+    if len(xs) < 10:
+        return set()
+    tags = set()
+    for across, along in ((xs, zs), (zs, xs)):
+        us = np.unique(np.round(across, 1))
+        if len(us) < 5:
+            continue
+        prof = np.array([yt[np.isclose(across, u, atol=0.1)].mean() for u in us])
+        rng = float(prof.max() - prof.min())
+        vs = np.unique(np.round(along, 1))
+        spread = float(np.ptp([yt[np.isclose(along, v, atol=0.1)].mean() for v in vs])) if len(vs) > 1 else 0.0
+        if rng < 2.0 or spread > 0.4 * rng:
+            continue
+        short_side = np.ptp(across) <= np.ptp(along) + 4
+        h = prof.max() - prof                      # height above the lowest point (-Y is up)
+        n = len(h)
+        mid, q1, q3 = n // 2, n // 4, (3 * n) // 4
+        asym = float(np.mean(np.abs(h - h[::-1]))) / rng
+        if asym < 0.2 and h[mid] >= 0.8 * rng and max(h[0], h[-1]) <= 0.4 * rng:
+            # symmetric hump: curved if the shoulders bulge above a straight line, else a ridge
+            bulge = (h[q1] + h[q3]) / 2 - (h[mid] + (h[0] + h[-1]) / 2) / 2
+            if bulge <= 0.1 * rng:
+                tags.add("ridge")
+            elif short_side:
+                tags.add("half_round")
+            continue
+        rising = np.all(np.diff(h) >= -0.5) or np.all(np.diff(h) <= 0.5)
+        if short_side and rising and abs(h[0] - h[-1]) >= 0.8 * rng:
+            # look only where the top actually slopes (a 45 degree slope brick has a flat stud
+            # area too): a curve bows away from the straight line joining that stretch's ends
+            moving = np.nonzero(np.abs(np.diff(h)) > 0.25)[0]
+            a, b = int(moving[0]), int(moving[-1]) + 1
+            if b - a >= 3:
+                line = np.linspace(h[a], h[b], b - a + 1)
+                if float(np.max(np.abs(h[a:b + 1] - line))) > 0.12 * rng:
+                    tags.add("quarter_round")
+    return tags
+
+
 def _shape(pid: str) -> dict:
     """Size, connectors and shape of one part (local frame, LDU, -Y up)."""
     from . import catalog, geometry
@@ -135,6 +185,7 @@ def _shape(pid: str) -> dict:
         tags.add("smooth_top")
     if not out["receivers"]:
         tags.add("no_underside")
+    tags |= _profile_tags(pid)
     out["tags"] = sorted(tags)
     return out
 
