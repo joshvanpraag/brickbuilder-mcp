@@ -21,8 +21,11 @@ corner pieces, and studs showed on every flat bit.
    double convex slope (3045). At an inside corner (a valley, where a wing meets the
    main block), use the 2x2 double concave slope (3046). Without them, corners come out as
    stair steps.
-3. **A solid core.** Fill the inside of each course with plain bricks (any colour; hidden),
-   so every ring rests on something. The mansion used tan.
+3. **A core under each ring.** Each ring of slopes rests its front on the ring below and its
+   back on plain hidden bricks. On a big roof, don't fill the whole inside: a band two studs
+   wide just inside each ring is enough, with a one-plate lid under the flat top for the
+   tiles to sit on. A solid core can be the most expensive part of a large build. (A small
+   roof can simply be solid.)
 4. **A tiled top.** Once the rings stop, cover the flat top with tiles so no studs show.
 5. **A cornice ledge.** Start the first ring one stud in from the wall face, so a ledge of
    trim colour runs round the base of the roof.
