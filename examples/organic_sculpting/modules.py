@@ -20,9 +20,12 @@ FLIP = np.diag([-1.0, 1.0, -1.0])  # ball/socket: stems opposite, tops the same 
 
 
 def mount(main: Model, module: Model, mod_part: int, mod_joint: int, target: int, target_joint: int = 0,
-          bend: float = 0, swing: float = 0, twist: float = 0) -> dict[int, int]:
+          bend: float = 0, swing: float = 0, twist: float = 0,
+          partners: dict[int, int] | None = None) -> dict[int, int]:
     """Mount `module` so joint `mod_joint` of its part `mod_part` connects to joint
     `target_joint` of main-model part `target`. Angles as in Model.attach_joint.
+    partners: further {module part: main part} joint pairs that interlock once mounted
+    (a doubled hinge's second pair), allowed to overlap like the first.
     Returns {module part id: main part id}."""
     tk, tc, tf = main.geometry(target).joints()[target_joint]
     mk, mc, mf = module.geometry(mod_part).joints()[mod_joint]
@@ -44,8 +47,9 @@ def mount(main: Model, module: Model, mod_part: int, mod_joint: int, target: int
             g = module.geometry(pid)
             m_new = R @ g.matrix
             pos = R @ g.pos + t
+            ignore = {target} if pid == mod_part else ({partners[pid]} if partners and pid in partners else None)
             q = main.add(p.part, p.color, 0, 0, 0, 0, "up", [float(v) for v in pos], matrix=m_new,
-                         ignore={target} if pid == mod_part else None)
+                         ignore=ignore)
             placed[pid] = q.id
     except BuildError as e:
         main.remove(list(placed.values()))

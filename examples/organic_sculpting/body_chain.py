@@ -42,20 +42,23 @@ def free(model, part, col, x, y, z, rot=0, plate_top=False):
 
 
 PIVOT_X = (C + 1.5) * 20            # hinge pivot: 1.5 studs from the axis, toward the bend (+x)
+# a doubled joint: two hinges side by side on the pivot line, one each side of the middle
+DOUBLE_ZS = (C - 2, C)
 
 
-def _hinge(model, part, y, grid=True, col=R):
+def _hinge(model, part, y, grid=True, col=R, z0=C - 1):
     """Hinge part turned so its pivot runs front-to-back (z) at x = PIVOT_X, filling
-    cells x C..C+1 (6134) or C+1 (3937), z C-1..C."""
+    cells x C..C+1 (6134) or C+1 (3937), z z0..z0+1 (default C-1..C, the body's middle).
+    A second hinge at another z0 on the same pivot line doubles the joint's strength."""
     for rot in (90, 270):
         for x in ((C, C + 1) if part == "6134" else (C + 1,)):
             try:
-                q = (model.add(part, col, x, y, C - 1, rot) if grid else free(model, part, col, x, y, C - 1, rot))
+                q = (model.add(part, col, x, y, z0, rot) if grid else free(model, part, col, x, y, z0, rot))
             except BuildError:
                 continue
             k, c, f = model.geometry(q.id).joints()[0]
             lo, hi = model.geometry(q.id).aabb()
-            if abs(c[0] - PIVOT_X) < 1 and abs(c[2] - C * 20) < 1 and lo[0] >= C * 20 - 1:
+            if abs(c[0] - PIVOT_X) < 1 and abs(c[2] - (z0 + 1) * 20) < 1 and lo[0] >= C * 20 - 1:
                 return q
             model.remove([q.id])
     raise BuildError(f"no placement for {part}")
@@ -143,12 +146,18 @@ def _face_band(s, y, face, col):
     return tiles, height
 
 
-def segment(layers, last=False, shoulder=False, col=R, face=None):
+def segment(layers, last=False, shoulder=False, col=R, face=None, double=False):
     """shoulder: an extra plate layer with a ball joint sticking out at each side; face:
     "eyes" or "mouth", an extra brick band carrying printed face tiles at the front; returns
-    (model, hinge top, next hinge base, {+1: right ball, -1: left ball})."""
+    (model, hinge top, next hinge base, {+1: right ball, -1: left ball}).
+    double: a second hinge pair on the same pivot line (front and back), so the joint
+    holds twice the load."""
     s = Model("seg")
-    top = _hinge(s, "6134", 0)
+    if double:
+        top = _hinge(s, "6134", 0, z0=DOUBLE_ZS[0])
+        _hinge(s, "6134", 0, z0=DOUBLE_ZS[1])
+    else:
+        top = _hinge(s, "6134", 0)
     # plate 1: half-round plate on the outside of the bend, narrow 2x6 on the inside
     s.add("22888", R, C - 4, 2, C - 4, 270)
     s.add("3795", R, C, 2, C - 3, 90)
@@ -184,7 +193,11 @@ def segment(layers, last=False, shoulder=False, col=R, face=None):
         for qx, qz, rot in QUAD:
             # hollow ring only where the hinge is (inside of the bend); solid elsewhere
             free(s, RING if rot in (0, 90) else "2577", R, qx, y, qz, rot)
-        base = _hinge(s, "3937", y, grid=False)          # next hinge, inside the ring
+        if double:
+            base = _hinge(s, "3937", y, grid=False, z0=DOUBLE_ZS[0])
+            _hinge(s, "3937", y, grid=False, z0=DOUBLE_ZS[1])
+        else:
+            base = _hinge(s, "3937", y, grid=False)      # next hinge, inside the ring
     return s, top, base, balls
 
 
