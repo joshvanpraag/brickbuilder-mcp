@@ -109,6 +109,7 @@ builds with you.
 | `fill_layers` | Colour layer maps packed automatically into bricks/plates/tiles in running bond |
 | `image_to_grid`, `build_mosaic` | Quantize pictures to LEGO colours; build mosaics |
 | `describe_model`, `check_model` | Per-level maps, part counts, floating/loose-part detection from real stud contact |
+| `check_strength` | Where the model would break: sections hanging on one weak link, ranked by weight, leverage and link strength |
 | `render_model` | Preview sheet with real part shapes (or `detail="simple"`), optionally beside the reference picture |
 | `export_ldr` | LDraw file, one build step per level; `legacy_ids` for older part numbers |
 
@@ -243,6 +244,24 @@ data that doesn't fit the LDraw model is ignored. `uv run python scripts/audit_s
 reports how many of each kind are kept and dropped, and on which parts. Every bar, pin,
 axle and ball passes. About 98% of pin holes and 94% of axle holes pass, and the ones
 dropped are mostly on Duplo, electric, train and minifig parts.
+
+### Strength check
+
+`check_model` says whether everything is connected. `check_strength` says where it would
+break. A model is a network of parts joined by studs and joints, and a weak link is a
+single connection that a whole section hangs on. Each weak link gets a risk score:
+
+- **Weight:** the volume of the section that would fall, in 1x1 bricks.
+- **Leverage:** how far out that weight sits, in studs.
+- **Strength:** 1 per stud, and joints by type (a large ball 3, a hinge 2, a clip 1).
+
+The score is weight x leverage / strength. Weight resting straight on top of studs only
+counts its leverage, because it presses the bricks together. Hinges, balls, clips and
+turntables are held by friction, so they always count fully.
+
+The scores are rough. They rank weak spots rather than predict exactly when something
+snaps. Anything over 20, or a single stud holding more than two bricks, is listed with
+how to fix it.
 
 ### Finding parts
 

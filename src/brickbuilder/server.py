@@ -665,7 +665,23 @@ def check_model() -> str:
         lines.append(f"OVERLAP: #{i} {m.parts[i].part} and #{j} {m.parts[j].part} pass into each other ({n} sample points)")
     if not clashes:
         lines.append("OK: no parts pass into each other.")
+    lines.append("(check_strength shows where the model would break: sections hanging on one weak link.)")
     return "\n".join(lines)
+
+
+@mcp.tool()
+def check_strength(limit: int = 15) -> str:
+    """Where would the built model break? Finds every single connection that, if it broke,
+    would let a section fall off, and ranks them by risk: the weight of that section
+    (in 1x1-brick units), how far it sticks out (studs), and how strong the link is (1 per
+    stud; joints by type). Weight resting straight on stud connections only counts its
+    leverage; hinges, balls, clips and turntables are held by friction and count fully.
+    Use it after building anything tall, sideways or posed; reinforce what it flags."""
+    from . import strength
+    m = _model()
+    if not m.parts:
+        return "The model is empty."
+    return strength.describe(m, strength.report(m, max(1, min(int(limit), 100))))
 
 
 @mcp.tool()
