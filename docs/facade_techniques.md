@@ -87,6 +87,12 @@ window is in roughly the right place. Generate them instead:
     the walls, and tie them to the middle with a second layer of plates.
   This needs depth: the bay stands out about 2.2 studs from its back columns. A shallow bay
   (1 stud) between pilasters cannot do it; keep that one round.
+- **Plan heights in whole brick courses.** Every one-plate row (a band, a sill, a lintel) splits
+  that brick course into three thin layers of plates all round the building, and a sill under
+  each window splits it into hundreds of 1x1 plates. Put windows exactly one or two courses
+  tall, and let a single plate row under each row of windows be the sill line for all of them
+  (it also gives the continuous horizontal line a facade wants). On a small version this cut
+  the part count from about 1,850 to about 1,050.
 - **Taller parts over stacks of plates.** Where a gap is 3 plates or more, use a brick (or a
   facet brick) rather than a stack of plates: fewer parts and cheaper. Keep thin plates for
   details that really are 1 or 2 plates tall, like band lines.
