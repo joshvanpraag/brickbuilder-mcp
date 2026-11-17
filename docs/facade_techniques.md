@@ -82,6 +82,9 @@ window is in roughly the right place. Generate them instead:
     shaped like the bay: a plain rectangle sitting on a three-sided bay looks wrong. Two 3x3
     cut-corner plates (2450) with a plate between them give a lid 4 studs wide at the front
     that widens along 45 degree sides; triangular tiles (35787) finish the cut corners.
+  - close the bottom too: let the middle of the bay's floor replace the front piece of the
+    footing ring (the masonry above locks it in), add floor pieces wherever they fit inside
+    the walls, and tie them to the middle with a second layer of plates.
   This needs depth: the bay stands out about 2.2 studs from its back columns. A shallow bay
   (1 stud) between pilasters cannot do it; keep that one round.
 - **Taller parts over stacks of plates.** Where a gap is 3 plates or more, use a brick (or a
