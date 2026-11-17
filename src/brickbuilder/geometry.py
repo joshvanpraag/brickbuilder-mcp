@@ -41,9 +41,11 @@ VOXEL = 4.0  # LDU; 1 stud = 5 voxels, 1 plate = 2 voxels
 #   hinge (3937 / 6134), swivel hinge plates and turntables are "aligned": at angle 0 the
 #   two frames coincide, which is the assembled position LDraw draws them in.
 BALL_KINDS = {"ball", "socket", "towball", "towball_socket", "large_ball", "large_socket"}
-# pin / pin_hole / axle / axle_hole and finger_m / finger_f come from the LDCad snap data
+# pin / pin_hole / axle / axle_hole, bar_hole (a 1-stud-wide bar fits in: a wheel on a
+# wheel holder's pin, a bar in a hollow stud) and finger_m / finger_f come from the LDCad snap data
 # (snaps.py), as do clips and bars that LDraw draws without a recognisable primitive.
-OPPOSED_KINDS = {"clip", "bar", "click_hinge_1", "click_hinge_2", "pin", "pin_hole", "axle", "axle_hole"}
+OPPOSED_KINDS = {"clip", "bar", "bar_hole", "click_hinge_1", "click_hinge_2", "pin", "pin_hole", "axle",
+                 "axle_hole"}
 SLIDE_KINDS = {"clip", "bar", "axle", "axle_hole", "pin_hole"}
 FLIP_KINDS = SLIDE_KINDS | {"pin"}
 MALE_SLIDE_KINDS = {"bar", "axle"}          # slide moves the other part along these
@@ -56,7 +58,8 @@ _PAIRS = [("ball", "socket"), ("towball", "towball_socket"), ("large_ball", "lar
           ("hinge_base", "hinge_top"), ("clip", "bar"), ("swivel_base", "swivel_top"),
           ("click_hinge_1", "click_hinge_2"), ("turntable_base", "turntable_top"),
           ("turntable2_base", "turntable2_top"), ("flat_turntable", "snapstud"),
-          ("pin", "pin_hole"), ("axle", "axle_hole"), ("axle", "pin_hole"), ("finger_m", "finger_f")]
+          ("pin", "pin_hole"), ("axle", "axle_hole"), ("axle", "pin_hole"), ("finger_m", "finger_f"),
+          ("bar", "bar_hole")]
 JOINT_PAIRS = {p for a, b in _PAIRS for p in ((a, b), (b, a))}
 
 # Joint primitives by file name: (kind, centre, axis) in the primitive's frame. For ball
@@ -364,28 +367,46 @@ def _snap_joints(pid: str, have: list, validate: bool = True) -> list:
     for s in snaps.part_snaps(pid):
         name = snaps.classify(s)
         y = s.axis / (np.linalg.norm(s.axis) or 1)
-        if name in ("bar", "pin", "pin_hole", "axle", "axle_hole"):
+        if name in ("bar", "bar_hole", "pin", "pin_hole", "axle", "axle_hole"):
             secs = s.params.get("secs") or []
             total = sum(length for _, _, length in secs)
             start = -total / 2 if str(s.params.get("center", "")).lower() == "true" else 0.0
-            # the part of the cylinder that goes into the other part (not a pin's collar)
-            spans, t = [], start
-            for shape, r, length in secs:
-                if name != "pin" or r <= 6.6:
-                    spans.append((t, t + length))
-                t += length
-            if not spans:
-                continue
-            a, b = spans[0][0], spans[-1][1]
-            o = s.pos - y * (a + b) / 2                  # cylinders run along the snap's -Y
-            length = b - a
-            if name == "bar" and length < CLIP_WIDTH - 0.5:
-                continue                                 # too short to clip (a stud's core)
-            if dup(name, o, y):
-                continue
-            slide = max(0.0, (length - (CLIP_WIDTH if name == "bar" else 20.0)) / 2) \
-                if name in ("bar", "axle") else 0.0
-            out.append((name, o, _fit_frame(pid, o, y), slide))
+            # the part of the cylinder that goes into the other part (not a pin's collar).
+            # An axle pin (3749, 6562) is one cylinder with a round pin half and a cross
+            # axle half: it becomes two joints, a pin and an axle.
+            def wanted(shape, r, kind):
+                if kind == "pin":
+                    return r <= 6.6 and "A" not in shape
+                if kind == "axle" and s.gender == "M":
+                    return "A" in shape
+                return True
+            groups = [name]
+            if name == "axle" and s.gender == "M" and any(
+                    "A" not in sh and r <= 6.6 and length >= 8 for sh, r, length in secs):
+                groups = ["pin", "axle"]
+            for kind in groups:
+                spans, t = [], start
+                for shape, r, length in secs:
+                    if (kind not in ("pin", "axle") or len(groups) == 1 and kind == "axle"
+                            or wanted(shape, r, kind)):
+                        spans.append((t, t + length))
+                    t += length
+                if not spans:
+                    continue
+                a, b = spans[0][0], spans[-1][1]
+                o = s.pos - y * (a + b) / 2              # cylinders run along the snap's -Y
+                length = b - a
+                if kind == "bar" and length < CLIP_WIDTH - 0.5:
+                    continue                             # too short to clip (a stud's core)
+                if dup(kind, o, y):
+                    continue
+                slide = max(0.0, (length - (CLIP_WIDTH if kind == "bar" else 20.0)) / 2) \
+                    if kind in ("bar", "axle") else 0.0
+                if kind == "axle_hole" and length < 20.0:
+                    # a short grip ring (a wheel rim's hub): the part can sit anywhere
+                    # along a one-stud axle end, not only at its middle
+                    slide = (20.0 - length) / 2
+                out.append((kind, o, _fit_frame(pid, o, y), slide))
         elif name == "clip":
             length = float(s.params.get("length", CLIP_WIDTH) or CLIP_WIDTH)
             centred = str(s.params.get("center", "")).lower() == "true"

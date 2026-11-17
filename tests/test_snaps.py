@@ -62,8 +62,33 @@ def test_axle_turns_in_90_degree_steps():
         pass
 
 
+def test_axle_pin_has_a_pin_end_and_an_axle_end():
+    assert kinds("3749") == ["pin", "axle"]
+
+
+def test_wheel_on_axle_pin():
+    """A brick with a hole, an axle pin, and a Speed Champions wheel on the axle end."""
+    m = Model("wheel")
+    brick = m.add("3700", 0, 4, 6, 0, 90)
+    pin = m.attach_joint("3749", 19, brick.id, kinds("3700").index("pin_hole"), kinds("3749").index("pin"), 0)
+    # the rim grips the axle with a thin ring, so it may sit anywhere along the axle end
+    m.attach_joint("18976c01", 71, pin.id, kinds("3749").index("axle"), 0, 0, slide=9)
+    assert not m.overlaps()
+
+
+def test_wheel_on_wheel_holder_pin():
+    assert "bar_hole" in kinds("6014ac01")
+    m = Model("holder")
+    holder = m.add("4600", 0, 0, 0, 0, ldu=[60, -48, 120])
+    m.attach_joint("6014ac01", 71, holder.id, 0, 0, 0, flip=True)
+    m.attach_joint("6014ac01", 71, holder.id, 1, 0, 0)
+    assert not m.overlaps()
+
+
 if __name__ == "__main__":
     for t in (test_data_installed, test_connector_summaries, test_new_joint_kinds,
-              test_pin_into_brick_with_hole, test_axle_turns_in_90_degree_steps):
+              test_pin_into_brick_with_hole, test_axle_turns_in_90_degree_steps,
+              test_axle_pin_has_a_pin_end_and_an_axle_end, test_wheel_on_axle_pin,
+              test_wheel_on_wheel_holder_pin):
         t()
         print("ok", t.__name__)

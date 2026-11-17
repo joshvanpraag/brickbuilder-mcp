@@ -71,6 +71,7 @@ All of the connections above can be modelled.
 | Hinges, hinge plates, locking hinges, hinge fingers | `attach_joint` |
 | Turntables | `attach_joint` |
 | Technic pins and axles | `attach_joint`, from the LDCad connection data |
+| Bars into holes, wheels on axle pins and wheel holders | `attach_joint` (`bar_hole`); see [vehicle_builds_techniques.md](vehicle_builds_techniques.md) |
 | Sub-assembly built in any direction | `modules.mount_on_stud` |
 
 [part_support_probe.txt](part_support_probe.txt) is the check made before these were added. It shows which connections were missing at that time.

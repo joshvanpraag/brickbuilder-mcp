@@ -231,6 +231,15 @@ A Technic pin (2780) pushed into a brick with a hole (3700, #1):
 attach_joint(parts=[{"part": "2780", "color": "black", "to_id": 1, "to_joint": 0, "joint": 0}])
 ```
 
+Wheels, as most minifig-scale cars mount them
+([demo](examples/vehicles/wheels_demo.py), [render](examples/vehicles/renders/wheels_demo.png)):
+- **On an axle pin:** an axle pin (3749) goes into a brick with a hole (3700) by its `pin`
+  joint, and a rim with tyre goes on its `axle` joint. LDraw has ready-made rim + tyre parts,
+  named like the rim plus `c01` (`18976c01` is the Speed Champions wheel). A rim grips the
+  axle with a thin ring, so it can `slide` along the axle end.
+- **On a wheel holder:** a wheel's `bar_hole` goes onto a wheel holder's pin (`bar`), e.g.
+  `6014ac01` on 4600. Use `flip` so each tyre faces out.
+
 **Where the Technic, finger and extra clip/bar joints come from:** the
 [LDCad shadow library](https://github.com/RolandMelkert/LDCadShadowLibrary) lists every
 connection point (stud, hole, bar, clip, pin, axle, ball, hinge finger) of about 3,400 parts
@@ -238,7 +247,8 @@ and primitives. `scripts/fetch_ldcad_snaps.sh` downloads it into `data/ldcad_sha
 server adds those connections to any part where its own detection found none. It adds bars
 to about 1,700 parts, clips to about 150, and pins, pin holes, axles, axle holes and hinge
 fingers to about 2,500. `part_info` lists every connector a part has, and `find_parts`
-can search by them (tags `pin`, `pin_hole`, `axle`, `axle_hole`, `hinge_fingers`). Without
+can search by them (tags `pin`, `pin_hole`, `axle`, `axle_hole`, `hinge_fingers`; joint
+`bar_hole`). Without
 the download, everything else still works; those joints just aren't there.
 
 Each of these joints is checked against the part's drawn shape before it is used (the

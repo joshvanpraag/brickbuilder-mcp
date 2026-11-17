@@ -269,7 +269,8 @@ def summary(part: str) -> dict[str, int]:
 
 # largest allowed distance from the joint centre to the part's surface (LDU)
 NEAR = {"bar": 6.5, "pin": 9, "axle": 9, "clip": 8, "ball": 11, "socket": 12, "large_ball": 16,
-        "large_socket": 16, "finger_m": 12, "finger_f": 12, "pin_hole": 9.5, "axle_hole": 9.5}
+        "large_socket": 16, "finger_m": 12, "finger_f": 12, "pin_hole": 9.5, "axle_hole": 9.5,
+        "bar_hole": 6.5}
 
 
 @functools.lru_cache(maxsize=512)
@@ -318,6 +319,6 @@ def plausible(pid: str, kind: str, origin) -> tuple[bool, float]:
     one connector radius from its centre, and a hole's centre must be open."""
     d = surface_distance(np.asarray(origin, float), _tris(pid))
     ok = d <= NEAR.get(kind, 10)
-    if kind in ("pin_hole", "axle_hole"):
+    if kind in ("pin_hole", "axle_hole", "bar_hole"):
         ok = ok and d >= 2.0
     return ok, d
