@@ -13,7 +13,7 @@ adds these as a "facade kit" after the voxel design and before packing.
 | Doors | A door frame, or a tall window frame with dark glass for a glazed door. | 60596 + door; 60593 + 60602 |
 | Stone base | Masonry-profile bricks, with the profile turned to the outside. | 98283 (1x2), 15533 (1x4) |
 | String courses | Masonry bricks or plates in a contrasting colour, run round every wall. | 98283, plates |
-| Pilasters | Built sideways: a column of studs-on-the-side bricks in the wall, a long plate stood upright on their studs, and curved-top bricks along the plate. | 87087, 1x12 plate 60479, 37352 |
+| Pilasters | Built sideways: a column of studs-on-the-side bricks in the wall, a long plate stood upright on their studs, and half-round curved-top bricks along the plate. | 87087, 1x12 plate 60479, 79756 (or 3563) |
 | Porch columns | Round 1x1 bricks stacked, or a 1x1x6 pillar on a square base, capped by a round brick. | 3062b, 43888 |
 | Porch canopy / rotunda | Round plates (4x4) and half-round plates, edged with curved tiles and curved bricks. | 60474, 27925, 5152 |
 | Round bays | Two quarter-round corner bricks with a straight middle make a half-round bay. Curved corner windows give a glazed floor, and quarter-round plates and tiles cap it. | 5152, 73878, 30357, 27925 |
@@ -51,6 +51,10 @@ window is in roughly the right place. Generate them instead:
   rotunda the real building doesn't have reads as out of place. A framed door with tan
   jambs, an arch and a keystone gives the entrance an accent instead.
 
+- **No arches over doors in a hollow building.** An arch brick (3659) is open underneath, and
+  over a door frame that opening looks straight into the empty inside. Use a solid lintel
+  instead: a masonry 1x4 (15533) with a curved keystone (37352) on top.
+
 ## Rules of thumb
 
 - **Trim should be deliberate.** Tan or cream only where the building has a band, sill,
@@ -72,8 +76,11 @@ window is in roughly the right place. Generate them instead:
   60601 panes at angles; call `insert_parts` twice on it.
 - **Clear glass** (trans-clear 60601) reads best. Dark glass renders as flat grey.
 - **Pilaster:** `attach_parts` a 60479 plate onto the side stud of an 87087 brick with
-  `rot` 90 so it stands upright. Then attach 37352 bricks onto every second plate stud
-  with `rot` 270 so they lie along the plate.
+  `rot` 90 so it stands upright. Then attach a half-round curved-top brick onto every fourth
+  plate stud with receiver 0 and `rot` 270 so it lies along the plate: 79756 (1x4 x 2/3), or
+  its 1x2 version 3563. These are half-round across their one-stud width. 37352 (1x2 curved
+  top) looks similar but is a quarter-round, curved on one edge only, and gives a lopsided
+  column.
 - **Quarter-round parts (5152, 73878, 27925):** at rot 0 the curve bulges to the front-right;
   rot 270 puts it front-left. The 3x3 plate 30357 has its rounded corner back-right at rot 0,
   so use rot 270 for front-right and 180 for front-left.

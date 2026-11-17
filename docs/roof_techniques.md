@@ -63,6 +63,14 @@ corner pieces, and studs showed on every flat bit.
   there is a T-junction with nothing higher to lean a slope on, so no slope fits. If the cell
   is in the top course it is level with the flat top: tile it and it becomes part of the
   finished top.
+- **Gables on the side walls need a cross-gable roof.** Pad the distance field beyond the
+  gable across its full width, so a small ridge runs from the gable back into the main roof,
+  as high as the gable's middle. Then raise that gable one brick so it stands proud of its
+  roof. Padding only the gable's middle gives a ridge too low to see, and the gable looks
+  like a loose wall stuck on the roof.
+- **Where a cross-gable ridge meets the main slope** two valleys meet, and the last ridge row
+  has nothing to lean on. A one-row double slope (3044c) across the pair carries the ridge
+  into the valley point.
 - **Hidden core colour.** Use the roof colour for the core: round parts on the roof (a round
   plate under a cone) leave their corners open, and the core shows through.
 
