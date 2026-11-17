@@ -51,6 +51,17 @@ window is in roughly the right place. Generate them instead:
   rotunda the real building doesn't have reads as out of place. A framed door with tan
   jambs, an arch and a keystone gives the entrance an accent instead.
 
+- **Lines run unbroken.** A horizontal band carries on round every wall, corners and
+  courtyards included, until something real stops it: a window, a pilaster, a bay or a
+  doorway. Scanned colours leave random gaps in a band; repaint every band row the full way
+  round after tidying the scan, so no line breaks for no reason.
+- **Mirror one-sided parts.** A part with a one-sided curve (a curved-top brick, a
+  quarter-round) used on both sides of a symmetric building must be turned the opposite way
+  on the other side, so the two sides are mirror images.
+- **Close the bottom with a fitted floor.** Fill exactly the inside of the walls (not a
+  courtyard, not under bays) with two layers of plates at the bottom, the second laid across
+  the seams of the first. The bottom layer joins the plate course under the walls, so the
+  floor locks to the building and to itself. Check that no plate pokes past a curved wall.
 - **No arches over doors in a hollow building.** An arch brick (3659) is open underneath, and
   over a door frame that opening looks straight into the empty inside. Use a solid lintel
   instead: a masonry 1x4 (15533) with a curved keystone (37352) on top.
