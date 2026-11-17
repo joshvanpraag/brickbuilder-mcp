@@ -234,11 +234,14 @@ attach_joint(parts=[{"part": "2780", "color": "black", "to_id": 1, "to_joint": 0
 Wheels, as most minifig-scale cars mount them
 ([demo](examples/vehicles/wheels_demo.py), [render](examples/vehicles/renders/wheels_demo.png)):
 - **On an axle pin:** an axle pin (3749) goes into a brick with a hole (3700) by its `pin`
-  joint, and a rim with tyre goes on its `axle` joint. LDraw has ready-made rim + tyre parts,
-  named like the rim plus `c01` (`18976c01` is the Speed Champions wheel). A rim grips the
-  axle with a thin ring, so it can `slide` along the axle end.
-- **On a wheel holder:** a wheel's `bar_hole` goes onto a wheel holder's pin (`bar`), e.g.
-  `6014ac01` on 4600. Use `flip` so each tyre faces out.
+  joint, and a rim goes on its `axle` joint. A rim grips the axle with a thin ring, so it
+  can `slide` along the axle end.
+- **On a wheel holder:** a rim's `bar_hole` goes onto a wheel holder's pin (`bar`), e.g.
+  6014b on 4600. Use `flip` so each rim faces out. Grid placement lines a wheel holder up by
+  its plate, not its pins.
+- **Tyres:** a tyre's `tyre` joint goes onto a rim's `tyre_seat`. It sits where LDraw's
+  ready-made rim + tyre parts put it, and a tyre that doesn't fit the rim is refused. Wheels
+  missing from the LDCad data (such as 6014b) get their hub hole from the drawn shape.
 
 **Where the Technic, finger and extra clip/bar joints come from:** the
 [LDCad shadow library](https://github.com/RolandMelkert/LDCadShadowLibrary) lists every

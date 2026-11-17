@@ -46,8 +46,8 @@ BALL_KINDS = {"ball", "socket", "towball", "towball_socket", "large_ball", "larg
 # (snaps.py), as do clips and bars that LDraw draws without a recognisable primitive.
 OPPOSED_KINDS = {"clip", "bar", "bar_hole", "click_hinge_1", "click_hinge_2", "pin", "pin_hole", "axle",
                  "axle_hole"}
-SLIDE_KINDS = {"clip", "bar", "axle", "axle_hole", "pin_hole"}
-FLIP_KINDS = SLIDE_KINDS | {"pin"}
+SLIDE_KINDS = {"clip", "bar", "axle", "axle_hole", "pin_hole", "tyre", "tyre_seat"}
+FLIP_KINDS = (SLIDE_KINDS - {"tyre", "tyre_seat"}) | {"pin"}
 MALE_SLIDE_KINDS = {"bar", "axle"}          # slide moves the other part along these
 # Largest tilt (degrees, bend and swing combined) each ball system allows.
 BALL_TILT = {"ball": 45, "socket": 45, "towball": 60, "towball_socket": 60,
@@ -59,7 +59,7 @@ _PAIRS = [("ball", "socket"), ("towball", "towball_socket"), ("large_ball", "lar
           ("click_hinge_1", "click_hinge_2"), ("turntable_base", "turntable_top"),
           ("turntable2_base", "turntable2_top"), ("flat_turntable", "snapstud"),
           ("pin", "pin_hole"), ("axle", "axle_hole"), ("axle", "pin_hole"), ("finger_m", "finger_f"),
-          ("bar", "bar_hole")]
+          ("bar", "bar_hole"), ("tyre_seat", "tyre")]
 JOINT_PAIRS = {p for a, b in _PAIRS for p in ((a, b), (b, a))}
 
 # Joint primitives by file name: (kind, centre, axis) in the primitive's frame. For ball
@@ -339,6 +339,8 @@ def joints_full(part: str) -> tuple:
     for o, a, s in _pair_handles(ends) + (_plain_bars(pid) if pid not in _JOINT_OVERRIDES else []):
         out.append(("bar", o, _fit_frame(pid, o, a), s))
     out += _snap_joints(pid, out)
+    from . import wheels
+    out += wheels.joints(pid, out)
     return tuple(out)
 
 
@@ -623,7 +625,19 @@ def contains(part: str, pts: np.ndarray, margin: float = 1.5) -> np.ndarray:
             inside &= ~np.isnan(t)
             lo_y = np.fmax(lo_y, t)
             hi_y = np.fmin(hi_y, b)
-    return inside & (pts[:, 1] > lo_y + margin) & (pts[:, 1] < hi_y - margin)
+    inside &= (pts[:, 1] > lo_y + margin) & (pts[:, 1] < hi_y - margin)
+    bore = _bore(part)
+    if bore:                                   # a tyre: its hole runs sideways, so the
+        inside &= np.hypot(pts[:, 0], pts[:, 1]) > bore + margin   # columns filled it in
+    return inside
+
+
+def _bore(part: str) -> float:
+    """The radius of a tyre's hole (0 for other parts). The solid is built from vertical
+    columns, which fill in a hole running sideways; this lets the rim and axle sit inside."""
+    from . import wheels
+    pid = ldraw.normalize_part_id(part)
+    return wheels.tyre_bore(pid) if wheels.is_tyre(pid) else 0.0
 
 
 @functools.lru_cache(maxsize=4096)
@@ -633,7 +647,9 @@ def samples(part: str) -> np.ndarray:
     if not len(v):
         return v
     offs = np.array([[dx, dy, dz] for dx in (-1, 1) for dy in (-1, 1) for dz in (-1, 1)], float)
-    return (v[:, None, :] + offs[None, :, :]).reshape(-1, 3)
+    pts = (v[:, None, :] + offs[None, :, :]).reshape(-1, 3)
+    bore = _bore(part)
+    return pts[np.hypot(pts[:, 0], pts[:, 1]) > bore] if bore else pts
 
 
 @functools.lru_cache(maxsize=4096)
@@ -720,3 +736,45 @@ def _derived_receivers(part: str) -> tuple:
                 continue
             out.append((np.array([cx, float(round(plane)), cz]), np.array([0.0, 1.0, 0.0])))
     return tuple(out)
+
+
+# ---------------------------------------------------------------- grid footprint
+
+_STICKING_OUT = {"bar", "pin", "axle", "clip"}
+
+
+@functools.lru_cache(maxsize=4096)
+def grid_bounds(part: str):
+    """The box grid placement (x, y, z) lines up: the part's body, without pins or bars that
+    stick out past it. ldraw.part_bounds measures everything drawn, so for a wheel holder
+    (4600) whose pins stick out each side it is a stud wider than the plate, and grid
+    placement would put the plate half a stud off. Here an overhang is left out only when
+    it is even on both sides and a pin, bar, axle or clip sits in it; any other part (a
+    dome whose underside covers only its middle, an inverted slope) keeps its full box."""
+    pid = ldraw.normalize_part_id(part)
+    b = ldraw.part_bounds(pid)
+    r = receivers(pid)
+    if not r:
+        return b
+    xs = [float(q[0][0]) for q in r]
+    zs = [float(q[0][2]) for q in r]
+    sticking = [o for k, o, *_ in joints_full(pid) if k in _STICKING_OUT]
+    box = {"x": [b.x0, b.x1], "z": [b.z0, b.z1]}
+    for axis, i, vals in (("x", 0, xs), ("z", 2, zs)):
+        lo, hi = min(vals) - 10, max(vals) + 10
+        full = box[axis]
+        if not (lo > full[0] + 0.5 and hi < full[1] - 0.5):
+            continue
+        if abs((lo - full[0]) - (full[1] - hi)) > 0.5:
+            continue                          # overhang on one side only: keep the full box
+        if not any(o[i] < lo - 0.5 for o in sticking) or not any(o[i] > hi + 0.5 for o in sticking):
+            continue                          # nothing like a pin in the overhang
+        box[axis] = [lo, hi]
+    if box == {"x": [b.x0, b.x1], "z": [b.z0, b.z1]}:
+        return b
+    y_bottom = b.y_bottom
+    y = max(float(q[0][1]) for q in r)        # the body's underside
+    if 0 < b.y_bottom - y < 8:
+        y_bottom = y
+    return ldraw.PartBounds(box["x"][0], box["x"][1], y_bottom - (b.y_bottom - b.y_top),
+                            y_bottom, box["z"][0], box["z"][1])

@@ -78,8 +78,9 @@ Joints, for posed, organic models (modules at any angle, not just 90 degree step
   holes (bend turns the pin, flip turns it end for end), axles into axle holes (90 degree
   steps) or round pin holes (any angle), axles slide through holes, bars into bar holes
   (bar_hole: a wheel on a wheel holder's pin, a bar in a hollow stud or tube), axle pins
-  (3749) with a pin end and an axle end for wheels, hinge fingers (finger_m into finger_f), and clips, bars and balls on parts LDraw draws without a
-  recognisable primitive. part_info lists every connector a part has.
+  (3749) with a pin end and an axle end for wheels, tyres onto rims (tyre into tyre_seat;
+  a tyre that doesn't fit is refused), hinge fingers (finger_m into finger_f), and clips,
+  bars and balls on parts LDraw draws without a recognisable primitive. part_info lists every connector a part has.
 - list_joints(id) lists a placed part's joints and what is connected to each.
 - attach_joint connects a new part's joint to a placed part's joint. For a ball joint,
   bend / swing tilt it (up to 45 degrees combined) and twist turns it about its axis;
@@ -459,7 +460,7 @@ def find_parts(query: str = "", footprint: str | None = None, height: str | None
     joints: joint kinds the part must have, any of: ball, socket, towball, towball_socket,
       large_ball, large_socket, hinge_base, hinge_top, clip, bar, swivel_base, swivel_top,
       click_hinge_1, click_hinge_2, turntable_base, turntable_top, flat_turntable, snapstud,
-      pin, pin_hole, axle, axle_hole, bar_hole, finger_m, finger_f.
+      pin, pin_hole, axle, axle_hole, bar_hole, tyre, tyre_seat, finger_m, finger_f.
     bottom_width / top_width: the part's width in studs at its bottom / top quarter, a
       number or range ('1-2'), to find parts that taper or flare between two sizes.
     color: only parts LEGO really produced in this colour (name or code), from the

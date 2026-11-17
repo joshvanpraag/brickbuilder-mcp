@@ -50,14 +50,16 @@ The dashboard is a plate with printed gauge tiles and a steering wheel, mounted 
 |---|---|
 | Wheels on axle pins in bricks with holes | `attach_joint`: the pin's `pin` into the brick's `pin_hole`, then the wheel's `axle_hole` onto the pin's `axle` |
 | Wheels on wheel-holder plates (4600, 6157) | `attach_joint`: the wheel's `bar_hole` onto the holder's pin (`bar`), `flip` so the tyre faces out |
-| Rims with tyres | use the LDraw rim + tyre parts (rim number + `c01`, e.g. `18976c01`, `6014ac01`). There's no tyre-on-rim joint, so these combined parts are the way to fit a tyre |
+| Tyres on rims | `attach_joint`: the tyre's `tyre` joint onto the rim's `tyre_seat` (`bend` turns it). A tyre that is too big or too small for the rim is refused. LDraw's ready-made rim + tyre parts (e.g. `18976c01`) work too |
 | Panels on side studs, turned on one stud | `attach_parts` / `modules.mount_on_stud` |
 | Light stacks, tiles over trans plates | ordinary stud placement |
 | Hinge bodywork, clips and bars, door rails | `attach_joint` (hinges, clips and bars), studs for the rail plates |
 | Bars into hollow studs or tubes | `attach_joint` with `bar_hole` |
 | Underbody built upside down | `modules.mount_on_stud` |
 
-Known limits:
-- **Wheels with no connection data:** the newer wheel rim 6014b has none in the LDCad data, so it can't be joined. The older 6014a (same size) can.
-- **Grid placement of parts that stick out:** for a part whose pins stick out past its body, like the wheel holder 4600, placing it by grid corner (`x, y, z`) puts it half a stud off. Place it with an exact `ldu` position instead, as the demo does.
-- **Door-rail plates** (32028) join by their studs; sliding along the rail isn't modelled.
+How the wheel support works:
+- **Where a tyre sits on a rim:** LDraw ships about a hundred ready-made rim + tyre parts, and each one records where the real tyre sits. The server reads them, so a tyre on a rim that has a ready-made part goes exactly there. All 94 recorded pairs match. Other rims use the middle of their outer barrel.
+- **Wheels with no connection data:** about 50 wheels, such as the common rim 6014b, aren't in the LDCad data. For these, the server measures the hole through the hub and adds a bar hole, pin hole or axle hole to match.
+- **Wheel holders on the grid:** a wheel holder's pins stick out past the plate. Grid placement (`x, y, z`) now goes by the plate itself, so a 4600 lines up with the bricks above it. Parts are only treated this way when pins or bars stick out evenly on both sides; every other part is placed as before.
+
+Still not modelled: sliding a door-rail plate (32028) along its rail. It joins by its studs.

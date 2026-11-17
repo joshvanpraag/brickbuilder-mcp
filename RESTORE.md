@@ -90,6 +90,7 @@ To check wheels too, run `uv run python examples/vehicles/wheels_demo.py wheels.
   uv run python tests/test_part_search.py
   uv run python tests/test_strength.py
   uv run python tests/test_rebrickable.py
+  uv run python tests/test_wheels.py
   ```
   Then show Claude the output.
 
