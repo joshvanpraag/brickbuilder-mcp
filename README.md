@@ -37,6 +37,7 @@ git clone https://github.com/ElRashoMacuin24/brickbuilder-mcp.git
 cd brickbuilder-mcp
 scripts/fetch_ldraw.sh   # downloads the LDraw parts library (~145 MB zip) into data/ldraw
 uv sync
+uv run python scripts/build_part_index.py   # part search index (a few minutes, once)
 claude mcp add brickbuilder -s user -- uv --directory "$PWD" run brickbuilder-mcp
 ```
 
@@ -100,7 +101,10 @@ builds with you.
 | `add_parts`, `remove_parts`, `undo` | Place parts on the stud grid, with collision checks; `up`/`ldu` for turned parts |
 | `attach_parts` | Press a part onto any stud, in any direction (sideways building / SNOT) |
 | `attach_joint` | Connect parts by ball joint or hinge at any angle (posed modules) |
-| `part_info`, `list_studs`, `list_joints` | A part's studs, receivers and joints; a placed part's studs/joints and what is on them |
+| `part_info`, `list_studs`, `list_joints` | A part's studs, receivers, joints and shape (width at four heights); a placed part's studs/joints and what is on them |
+| `find_parts` | Search all ~25,000 LDraw parts by words and by shape: footprint, height, taper (width at bottom and top), tags like round / widens_upward / curved / side_studs |
+| `preview_part` | Render one part from several angles, to see its real shape before building with it |
+| `build_part_index` | Build the search index `find_parts` uses (once, a few minutes) |
 | `fill_layers` | Colour layer maps packed automatically into bricks/plates/tiles in running bond |
 | `image_to_grid`, `build_mosaic` | Quantize pictures to LEGO colours; build mosaics |
 | `describe_model`, `check_model` | Per-level maps, part counts, floating/loose-part detection from real stud contact |
@@ -151,6 +155,29 @@ that are not 90 degree steps:
   whose real shapes pass into each other: points every 2 LDU inside each part are
   tested against the other part's solid, in that part's own frame, with a 1.5 LDU
   margin. So touching is fine, and tilted parts can't hide an overlap.
+
+### Finding parts
+
+The LDraw library has about 25,000 part files (including printed variants), but a part
+is only useful if you can find it. `find_parts` searches an index of every part's
+size, connectors and shape, so you can ask for what you need rather than its name:
+
+- `find_parts(query="curved slope", footprint="2x2")`: words plus a footprint (either way round).
+- `find_parts(tags=["widens_upward"], bottom_width="1-2", top_width="2-4")`: parts
+  that flare out going up, from about 2 studs wide at the bottom to 2-4 at the top.
+- `find_parts(query="snot", height="3")`: bricks with studs on their sides, one brick tall.
+- `find_parts(query="eye closed", include_prints=True)`: printed parts (hidden unless asked).
+
+Shape tags come from each part's real geometry: `round` (round cross-section),
+`narrows_upward` / `widens_upward` (width at the top vs the bottom), `smooth_top` (no
+top studs), `side_studs`, `down_studs`, `no_underside`. Further tags come from words in
+the name: `curved`, `slope`, `inverted`, `dome`, `cone`, `wedge`, `arch`, `tile`,
+`quarter`, `corner`, `bracket`, `hinge`, `clip`, `bar`, `ball`, `socket`.
+
+The index is built once, after setup: run `uv run python scripts/build_part_index.py`
+(a few minutes, using all CPU cores), or ask Claude to call `build_part_index`. It is
+saved as `data/part_index.json`; rebuild it after updating the LDraw library.
+`preview_part` then shows any result from four angles.
 
 ### Notes
 

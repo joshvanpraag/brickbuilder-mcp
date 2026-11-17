@@ -14,7 +14,7 @@ from PIL import Image as PILImage
 from mcp.server.mcpserver import Image, MCPServer
 from pydantic import BaseModel, Field
 
-from . import catalog, ldraw, packing, render
+from . import catalog, ldraw, packing, part_index, render
 from .model import BuildError, Model, legacy_part_id, safe_name
 
 HOME = Path(os.environ.get("BRICKBUILDER_HOME", ldraw.PROJECT_ROOT))
@@ -71,6 +71,15 @@ Joints, for posed, organic models (modules at any angle, not just 90 degree step
   so build a module (arm, tail segment, panel) outward from its joint.
 - check_model also lists parts whose real shapes interpenetrate, so tilted modules never
   pass through each other unnoticed.
+
+Finding the right part (the whole LDraw library, about 25,000 parts, is indexed):
+- find_parts searches by words AND by shape: footprint ('2x2'), height in plates,
+  bottom_width / top_width in studs, and tags such as round, narrows_upward,
+  widens_upward, curved, inverted, dome, cone, wedge, smooth_top, side_studs. Example:
+  find_parts(tags=['widens_upward'], bottom_width='1-2', top_width='2-4') finds parts
+  that flare out going up. Printed variants are hidden unless asked for.
+- preview_part renders one part from several angles, so you can see its real shape
+  before building with it; part_info gives its connectors and width at four heights.
 """
 
 mcp = MCPServer("brickbuilder", instructions=INSTRUCTIONS)
@@ -381,7 +390,92 @@ def part_info(part: str) -> str:
         lines.append("joints (index: kind, x, z in studs, height in plates):")
         for i, (kind, o, f) in enumerate(js):
             lines.append(f"  {i:2}: {kind} at x={o[0] / 20 + 0:g} z={o[2] / 20 + 0:g} y={-o[1] / 8 + 0:g}")
+    rec = part_index.record(pid) or {}
+    shape = rec if "widths" in rec else _shape_or_none(pid)
+    if shape and shape.get("widths"):
+        w = shape["widths"]
+        lines.append("shape: width in studs at 4 heights, bottom to top: " + " -> ".join(f"{v:g}" for v in w))
+    if shape and shape.get("tags"):
+        lines.append("tags: " + ", ".join(shape["tags"]))
     return "\n".join(lines)
+
+
+def _shape_or_none(pid: str) -> dict | None:
+    try:
+        return part_index._shape(pid)
+    except Exception:
+        return None
+
+
+@mcp.tool()
+def find_parts(query: str = "", footprint: str | None = None, height: str | None = None,
+               tags: list[str] | None = None, joints: list[str] | None = None,
+               bottom_width: str | None = None, top_width: str | None = None,
+               include_prints: bool = False, limit: int = 25) -> str:
+    """Search the whole LDraw library (about 25,000 parts) by words and by shape.
+    query: words from the part name, category or keywords ('curved slope', 'bracket',
+      'dome'); builder words work too: 'snot'/'sideways' (side studs), 'smooth' (no top
+      studs), 'tapered' (narrows upward), 'flared' (widens upward), 'printed'.
+    footprint: 'AxB' in studs, either orientation. height: plates, '3' or a range '2-6'.
+    tags: all must match, from: round, narrows_upward, widens_upward, curved, slope,
+      inverted, dome, cone, wedge, arch, tile, quarter, corner, half, smooth_top,
+      side_studs, down_studs, no_underside, bracket, hinge, clip, bar, ball, socket,
+      technic, offset, printed.
+    joints: joint kinds the part must have (e.g. 'ball', 'socket', 'hinge_base').
+    bottom_width / top_width: the part's width in studs at its bottom / top quarter, a
+      number or range ('1-2'), to find parts that taper or flare between two sizes.
+    Each result: id, footprint and height, width bottom->top, tags, connectors, name."""
+    _require_library()
+    if not part_index.available():
+        return ("The part index has not been built yet. Call build_part_index (takes a few "
+                "minutes, once), or run: uv run python scripts/build_part_index.py")
+    try:
+        hits = part_index.search(query, footprint, height, tags, joints, bottom_width, top_width,
+                                 include_prints, limit)
+    except ValueError as e:
+        raise BuildError(str(e)) from None
+    if not hits:
+        return "No matches. Try fewer words, a wider range, or fewer tags."
+    return "\n".join(part_index.describe(r) for r in hits)
+
+
+@mcp.tool()
+def build_part_index() -> str:
+    """Build (or rebuild) the search index that find_parts uses: analyses every part's
+    size, connectors and shape. Takes a few minutes, using all CPU cores. Needed once
+    after setup, and again after updating the LDraw library."""
+    import subprocess
+    import sys
+    _require_library()
+    # a separate process, so the worker pool never re-launches this server
+    run = subprocess.run([sys.executable, "-c", "from brickbuilder import part_index; part_index.build()"],
+                         capture_output=True, text=True, timeout=3600, env=os.environ.copy())
+    if run.returncode != 0:
+        raise BuildError("Index build failed: " + (run.stderr or run.stdout)[-800:])
+    part_index._load.cache_clear()
+    return (run.stdout.strip().splitlines() or ["Index built."])[-1]
+
+
+@mcp.tool()
+def preview_part(part: str, color: int | str = "light bluish gray", views: list[str] | None = None,
+                 size: int = 300) -> Image:
+    """Render a single part on its own so you can see its real shape before using it.
+    views: as in render_model; default front, right, top and iso_front_left."""
+    _require_library()
+    pid = ldraw.resolve_moved(ldraw.normalize_part_id(part))
+    if ldraw.part_title(pid) is None:
+        raise BuildError(f"Part '{part}' not found in the LDraw library")
+    m = Model("preview")
+    for lift in range(0, 2000, 8):                       # lift it until no part of it is below the ground
+        try:
+            m.add(pid, color, 0, 0, 0, 0, "up", [0.0, -float(lift), 0.0])
+            break
+        except BuildError as e:
+            if "below the ground" not in str(e):
+                raise
+    views = (views or ["front", "right", "top", "iso_front_left"])[:MAX_VIEWS]
+    size = max(64, min(int(size), MAX_RENDER_SIZE))
+    return Image(data=render.render(m, views, size), format="png")
 
 
 @mcp.tool()

@@ -48,7 +48,9 @@ Claude will install what's missing and run the steps below. Approve its prompts 
    ```
    bash scripts/fetch_ldraw.sh
    uv sync
+   uv run python scripts/build_part_index.py
    ```
+   The last command builds the part search index (a few minutes). It isn't backed up because it is rebuilt from the parts library.
 5. **Tell Claude about the tool:**
    ```
    claude mcp add brickbuilder -s user -- uv --directory "$(pwd -W)" run brickbuilder-mcp
