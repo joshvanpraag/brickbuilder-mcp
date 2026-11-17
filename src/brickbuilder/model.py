@@ -282,7 +282,7 @@ class Model:
 
     def _shape_clashes(self, g: Geometry, only_free: bool, ignore: set[int] | None = None) -> list[int]:
         """Parts whose real shape overlaps g's. Points filling each part every 2 LDU are
-        tested against the other part's solid (in its own frame) with a 1 LDU margin, both
+        tested against the other part's solid (in its own frame) with a 1.5 LDU margin, both
         ways round, so touching is fine and any real interpenetration is caught - also for
         tilted parts on joints."""
         lo, hi = g.aabb()
@@ -639,7 +639,7 @@ def _fmt(v: float) -> str:
 
 
 def _penetration(world_pts: np.ndarray, g: Geometry) -> int:
-    """How many world points lie inside g's solid (more than 1 LDU in)."""
+    """How many world points lie inside g's solid (more than 1.5 LDU in)."""
     lo, hi = g.aabb()
     sel = np.all((world_pts > lo - 1) & (world_pts < hi + 1), axis=1)
     if not sel.any():

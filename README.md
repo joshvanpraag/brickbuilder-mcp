@@ -144,7 +144,7 @@ that are not 90 degree steps:
   so a whole module builds outward from its joint at that angle.
 - **Checks:** `check_model` counts joints as connections. It also reports any parts
   whose real shapes pass into each other: points every 2 LDU inside each part are
-  tested against the other part's solid, in that part's own frame, with a 1 LDU
+  tested against the other part's solid, in that part's own frame, with a 1.5 LDU
   margin. So touching is fine, and tilted parts can't hide an overlap.
 
 ### Notes

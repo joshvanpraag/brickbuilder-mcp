@@ -247,7 +247,7 @@ def _column_grid(part: str):
     return x0, z0, top, bot
 
 
-def contains(part: str, pts: np.ndarray, margin: float = 1.0) -> np.ndarray:
+def contains(part: str, pts: np.ndarray, margin: float = 1.5) -> np.ndarray:
     """Which local-frame points lie inside the part's solid by more than `margin` LDU
     (points on or near a surface do not count, so parts that only touch never clash)."""
     if not len(pts):
@@ -299,6 +299,9 @@ def voxels(part: str) -> np.ndarray:
 _RECEIVER_OVERRIDES = {
     "24201": [(0, 20)],             # Slope Curved 2 x 1 Inverted
     "32803": [(-10, 20), (10, 20)],  # Slope Curved 2 x 2 Inverted
+    # Dome 4 x 4 Smooth: hollow, its rim fits over a 4x4 round stud pattern (no corners)
+    "86500": [(x, z) for z in (-30, -10, 10, 30) for x in (-30, -10, 10, 30)
+              if abs(x) + abs(z) < 60],
 }
 
 
