@@ -142,6 +142,10 @@ derived from the underside shape: one per stud cell whose walls reach a common
 plane with room for a stud. Collisions for turned parts use each part's real
 shape, voxelized at 4 LDU. `check_model` counts a connection wherever a stud sits
 in a receiver facing the opposite way, in any direction.
+A few parts are drawn with an underside the detection can't read (a cone's round hollow,
+a curved inverted slope); their stud holes are listed by hand in `geometry.py`, so 2x2
+cones (3942) sit on a 2x2 of studs like a round brick does. Round parts are also measured
+with a small tolerance, so a round 2x2 plate fits flush between tiles without a false overlap.
 
 ### Joints (posed models)
 
@@ -353,6 +357,29 @@ uv run python scripts/helms_deep/pack.py
 ```
 
 Then ask Claude to `open_model helms_deep` and export it.
+
+### Building from a 3D model (STL)
+
+A finished 3D model of a building can drive a generator the same way:
+
+- **Massing:** look down on the model and record the highest point over each stud. That
+  height map gives the footprint, wings, bays and roof shape.
+- **Facade details:** look at each side straight on and record how deep the surface is.
+  Compared with the wall around it, a recessed patch two studs wide is a window and a
+  raised horizontal run is a trim band or sill. Rows that are trim along most of the
+  front are carried round every wall.
+- **Gables:** a wall face that carries on above the eave at the same depth is a gable,
+  one stud thick, with the top cell of every step in the trim colour.
+- **Roof:** build it as rings of 45 degree slopes, one ring per brick course, each one
+  stud in from the last, with 3045 / 3046 corner slopes at the hips and valleys, a hidden
+  brick core and a tiled top. Copying the model's roof height column by column gives ugly
+  terraces instead. See [docs/roof_techniques.md](docs/roof_techniques.md).
+- **Hollow but solid:** keep one-stud walls, a solid roof core and a solid plate layer at
+  the eave. Then pack, and wherever a part is loose or `strength.report` finds
+  a section hanging on one weak link, fill the solid design back in underneath and
+  pack again.
+- **Real colours:** run `check_colors` and keep a list of part/colour pairs to skip
+  in the packer (for example a 1x3 plate in trans-dark blue was never made).
 
 ## Showcase renders and video
 

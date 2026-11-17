@@ -553,10 +553,14 @@ def _columns(part: str) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]
     # grid, not on multiples of 4), so cubes never stick out past a face: two parts that
     # merely touch then never share a voxel.
     b = ldraw.part_bounds(part)
-    x0 = b.x0 - VOXEL * math.ceil((b.x0 - lo[0] - 1e-6) / VOXEL)
-    z0 = b.z0 - VOXEL * math.ceil((b.z0 - lo[2] - 1e-6) / VOXEL)
-    nx = int(math.floor((hi[0] - 1e-6 - x0) / VOXEL)) + 1
-    nz = int(math.floor((hi[2] - 1e-6 - z0) / VOXEL)) + 1
+    # Round parts are drawn from circle primitives whose points land a hair outside the
+    # stud grid (20.0005 LDU for a 2x2 round plate). Without a tolerance that sliver adds a
+    # whole extra column, and the part then clashes with flush neighbours.
+    tol = 0.01
+    x0 = b.x0 - VOXEL * math.ceil((b.x0 - lo[0] - tol) / VOXEL)
+    z0 = b.z0 - VOXEL * math.ceil((b.z0 - lo[2] - tol) / VOXEL)
+    nx = int(math.floor((hi[0] - tol - x0) / VOXEL)) + 1
+    nz = int(math.floor((hi[2] - tol - z0) / VOXEL)) + 1
     # points exactly on a column boundary belong to the column they face into
     ix = np.clip(np.floor((pts[:, 0] - x0) / VOXEL - 1e-6).astype(int), 0, nx - 1)
     iz = np.clip(np.floor((pts[:, 2] - z0) / VOXEL - 1e-6).astype(int), 0, nz - 1)
@@ -673,6 +677,10 @@ _RECEIVER_OVERRIDES = {
     # Dome 4 x 4 Smooth: hollow, its rim fits over a 4x4 round stud pattern (no corners)
     "86500": [(x, z) for z in (-30, -10, 10, 30) for x in (-30, -10, 10, 30)
               if abs(x) + abs(z) < 60],
+    # 2x2 round parts drawn with a round hollow underside and no stud cells: their rim
+    # fits over a 2x2 stud pattern like a round brick's does
+    **{p: [(x, z) for z in (-10, 10) for x in (-10, 10)]
+       for p in ("3942a", "3942b", "3942c")},   # Cone 2 x 2 x 2
 }
 
 
