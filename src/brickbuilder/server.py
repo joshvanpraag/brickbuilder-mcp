@@ -164,6 +164,12 @@ class AttachSpec(BaseModel):
     rot: int | str = Field(0, description="Spin about the stud direction: 0/90/180/270")
 
 
+class InsertSpec(BaseModel):
+    part: str = Field(description="LDraw part id of the insert, e.g. 60601 glass for window 60592")
+    color: int | str
+    frame_id: int = Field(description="Placed frame the insert goes into")
+
+
 class JointSpec(BaseModel):
     part: str = Field(description="LDraw part id of the new part (it must have a ball, socket or hinge)")
     color: int | str
@@ -286,6 +292,29 @@ def add_parts(parts: list[PartSpec]) -> str:
             errors.append(str(e))
     _save(m)
     msg = f"Placed {len(ok)} part(s): ids {_ranges(ok)}." if ok else "Placed nothing."
+    if errors:
+        msg += "\nErrors:\n- " + "\n- ".join(errors)
+    return msg
+
+
+@mcp.tool()
+def insert_parts(parts: list[InsertSpec]) -> str:
+    """Seat inserts in placed frames: window glass (60601 in 60592, two 60601 in the round
+    corner window 73878, 60602 in 60593, 60603 in
+    60594, 57895 in 57894). The insert takes its frame's exact position and rotation and
+    counts as connected to it, so check_model does not report the glass as floating."""
+    m = _model()
+    if len(parts) > MAX_PARTS_PER_CALL:
+        raise BuildError(f"insert_parts is limited to {MAX_PARTS_PER_CALL} parts per call")
+    m.checkpoint()
+    ok, errors = [], []
+    for spec in parts:
+        try:
+            ok.append(m.add_insert(spec.part, spec.color, spec.frame_id).id)
+        except (BuildError, ldraw.LDrawError) as e:
+            errors.append(f"{spec.part} in #{spec.frame_id}: {e}")
+    _save(m)
+    msg = f"Seated {len(ok)} insert(s): ids {_ranges(ok)}." if ok else "Seated nothing."
     if errors:
         msg += "\nErrors:\n- " + "\n- ".join(errors)
     return msg

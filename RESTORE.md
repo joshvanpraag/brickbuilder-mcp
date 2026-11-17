@@ -94,6 +94,7 @@ To check wheels too, run `uv run python examples/vehicles/wheels_demo.py wheels.
   uv run python tests/test_wheels.py
   uv run python tests/test_lowell_sphere.py
   uv run python tests/test_round_receivers.py
+  uv run python tests/test_inserts.py
   ```
   Then show Claude the output.
 

@@ -30,6 +30,21 @@ import numpy as np
 
 from . import catalog, geometry, ldraw
 
+# Window frames and the glass that clips into them instead of using studs. Each seat is
+# (insert part, offset, rotation) in the frame's own LDraw frame, as LDraw's assembled parts
+# draw them (e.g. 73878c01 = 73878 + two 60601 panes at 22.5 and 67.5 degrees). Seated glass
+# counts as connected to its frame and may overlap the frame's solid (built from vertical
+# columns, which fill in the window opening).
+_I = ((1, 0, 0), (0, 1, 0), (0, 0, 1))
+SEATS: dict[str, list[tuple]] = {
+    **{f: [("60601", (0, 0, 0), _I)] for f in ("60592", "60592a", "60592b", "60592c")},  # 1x2x2
+    "60593": [("60602", (0, 0, 0), _I)],                                                  # 1x2x3
+    "60594": [("60603", (0, 0, 0), _I)],                                                  # 1x4x3
+    "57894": [("57895", (0, 0, 0), _I)],                                                  # 1x4x6
+    "73878": [("60601", (18.1773, 0, -43.8843), ((.92388, 0, -.38268), (0, 1, 0), (.38268, 0, .92388))),
+              ("60601", (43.8843, 0, -18.1773), ((-.38268, 0, -.92388), (0, 1, 0), (-.92388, 0, .38268)))],
+}
+
 FACINGS = {"front": 0, "right": 90, "back": 180, "left": 270}
 
 # World direction (LDraw frame, -Y up, -Z front) for each `up` name, and the rotation that
@@ -495,10 +510,51 @@ class Model:
                     if j != i and float(np.dot(d, rd)) < -0.9:
                         adj[i].add(j)
                         adj[j].add(i)
-        for i, j in self._joint_links():
+        for i, j in self._joint_links() + self._insert_links():
             adj[i].add(j)
             adj[j].add(i)
         return adj
+
+    def _seat_pose(self, frame_id: int, seat: tuple) -> tuple[np.ndarray, np.ndarray]:
+        """World position and rotation of a seat (see SEATS) in placed frame `frame_id`."""
+        g = self._geom[frame_id]
+        _, offset, rot = seat
+        return g.pos + g.matrix @ np.asarray(offset, float), g.matrix @ np.asarray(rot, float)
+
+    def _insert_links(self) -> list[tuple[int, int]]:
+        """Pairs (insert, frame): glass seated in its window frame (see SEATS)."""
+        inserts: dict[str, list[int]] = {}
+        for i, p in self.parts.items():
+            inserts.setdefault(p.part, []).append(i)
+        links = []
+        for j, p in self.parts.items():
+            for seat in SEATS.get(p.part, ()):
+                pos, rot = self._seat_pose(j, seat)
+                for i in inserts.get(seat[0], ()):
+                    g = self._geom[i]
+                    if np.allclose(g.pos, pos, atol=0.5) and np.allclose(g.matrix, rot, atol=1e-4):
+                        links.append((i, j))
+        return links
+
+    def add_insert(self, part: str, color: int | str, frame_id: int) -> Placement:
+        """Seat an insert (window glass) in placed frame `frame_id`: it goes in the first free
+        seat for that part, at the exact position and angle LDraw gives it in that frame."""
+        pid, _, _ = catalog.lookup(part)
+        if frame_id not in self.parts:
+            raise BuildError(f"no part #{frame_id}")
+        frame = self.parts[frame_id]
+        seats = [s for s in SEATS.get(frame.part, ()) if s[0] == pid]
+        if not seats:
+            known = "; ".join(f"{f}: {', '.join(sorted({s[0] for s in v}))}" for f, v in SEATS.items())
+            raise BuildError(f"{pid} does not fit {frame.part}. Frames and their inserts: {known}")
+        taken = {i for i, j in self._insert_links() if j == frame_id}
+        for seat in seats:
+            pos, rot = self._seat_pose(frame_id, seat)
+            busy = any(np.allclose(self._geom[i].pos, pos, atol=0.5) for i in taken)
+            if not busy:
+                return self.add(pid, color, 0, 0, 0, 0, "up", [float(v) for v in pos], rot,
+                                ignore={frame_id} | taken)
+        raise BuildError(f"#{frame_id} {frame.part} has no free seat for {pid}")
 
     @staticmethod
     def _joints_mate(j1, j2) -> bool:
@@ -557,7 +613,9 @@ class Model:
     def overlaps(self, limit: int = 50) -> list[tuple[int, int, int]]:
         """Pairs of parts whose real shapes interpenetrate: (id, id, sample points inside).
         Joint partners (a ball inside its socket) are expected to overlap and are skipped."""
-        joined = {tuple(sorted(p)) for p in self._joint_links()}
+        joined = {tuple(sorted(p)) for p in self._joint_links() + self._insert_links()}
+        joined |= {tuple(sorted((a, b))) for a, j in self._insert_links() for b, k in self._insert_links()
+                   if j == k and a != b}
         buckets: dict[tuple[int, int, int], list[int]] = {}
         for i, g in self._geom.items():
             lo, hi = g.aabb()

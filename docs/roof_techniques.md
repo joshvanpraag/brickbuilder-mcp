@@ -41,6 +41,23 @@ corner pieces, and studs showed on every flat bit.
 - Choose the number of courses from the model's roof height. A wide building ends in a flat
   tiled top (a mansard); a narrow one ends in a ridge.
 
+## Ridges, ridge ends and gables
+
+- **Narrow wings end in a ridge.** Where two ring cells sit side by side, each sloping away
+  from the other, cover them two at a time along the ridge with the 2x2 double slope 3043
+  (rot 0 runs the ridge along x, rot 90 along z). A 2x2 square left at the end of a ridge
+  takes one more 3043. The 2x1 double 3044b would be neater, but it was never made in dark
+  blue. Check colours.
+- **Roof outline from rectangles.** Build it from clean rectangles (the main range plus one
+  per wing), not from the scanned wall tops. A one-stud jog where a wing meets the main
+  block makes valley and hip pieces collide.
+- **Run the roof into a gable.** In front of a gable, count the roof as carrying on
+  (pad the distance field with a virtual strip ahead of the gable), so the rings run straight
+  into the back of the gable instead of sloping down toward it. That gives a clean
+  cross-gable; sloping toward the gable leaves garbled triangles beside it.
+- **Hidden core colour.** Use the roof colour for the core: round parts on the roof (a round
+  plate under a cone) leave their corners open, and the core shows through.
+
 ## A trap: separate roofs per wing
 
 Giving each wing and the main block its own hipped roof and taking the highest makes long

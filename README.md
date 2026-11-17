@@ -102,6 +102,7 @@ builds with you.
 | `list_parts`, `list_colors` | Curated catalog, full LDraw library search, colour codes |
 | `add_parts`, `remove_parts`, `undo` | Place parts on the stud grid, with collision checks; `up`/`ldu` for turned parts |
 | `attach_parts` | Press a part onto any stud, in any direction (sideways building / SNOT) |
+| `insert_parts` | Seat window glass in a placed window frame (it clips in rather than using studs) |
 | `attach_joint` | Connect parts by ball joint, hinge, clip on bar or turntable at any angle (posed modules) |
 | `part_info`, `list_studs`, `list_joints` | A part's studs, receivers, joints and shape (width at four heights); a placed part's studs/joints and what is on them |
 | `find_parts` | Search all ~25,000 LDraw parts by words and by shape: footprint, height, taper (width at bottom and top), tags like round / widens_upward / curved / side_studs |
@@ -380,6 +381,9 @@ A finished 3D model of a building can drive a generator the same way:
   pack again.
 - **Real colours:** run `check_colors` and keep a list of part/colour pairs to skip
   in the packer (for example a 1x3 plate in trans-dark blue was never made).
+- **Facade kit:** after packing shape, swap coloured window and trim cells for real parts:
+  framed windows with glass, masonry bricks on the stone base, tiled ledges, pilasters
+  built sideways, round bays and a porch. See [docs/facade_techniques.md](docs/facade_techniques.md).
 
 ## Showcase renders and video
 
