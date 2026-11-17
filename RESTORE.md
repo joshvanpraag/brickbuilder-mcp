@@ -18,7 +18,7 @@ This guide is for someone who doesn't write code. It gets the whole tool, plus e
 
 **Not in the backup (on purpose):**
 - **The LEGO parts library** (`data/ldraw`, about 145 MB): it's free, and setup re-downloads it.
-- **The LDCad connection data** (`data/ldcad_shadow`) and the part search index (`data/part_index.json`): setup downloads or rebuilds them.
+- **The LDCad connection data** (`data/ldcad_shadow`), the Rebrickable catalogue (`data/rebrickable`) and the indexes built from them (`data/*.json`): setup downloads or rebuilds them.
 - **Saved models** (`models/`): `.ldr` files you want to keep belong in `examples/`.
 - **Claude's private memory notes** on your computer: the important lessons are copied into `docs/organic_sculpting.md`.
 
@@ -51,9 +51,11 @@ Claude will install what's missing and run the steps below. Approve its prompts 
    bash scripts/fetch_ldcad_snaps.sh
    uv sync
    uv run python scripts/build_part_index.py
+   bash scripts/fetch_rebrickable.sh
    ```
    - The second command downloads the LDCad connection data (about 2 MB). It lets the tool join pins, axles, clips and hinges.
-   - The last command builds the part search index (a few minutes).
+   - The fourth command builds the part search index (a few minutes).
+   - The last command downloads Rebrickable's catalogue (about 17 MB), so the tool knows which colours each part was really made in.
    - None of these are backed up, because they're downloaded or rebuilt.
 5. **Tell Claude about the tool:**
    ```
@@ -78,11 +80,13 @@ It should print `overlaps []` and write `test.png`, a red block with a white dom
   2. Delete only the shortcut named `cpython-3.12-windows-x86_64-none`. Keep the folder whose name has the full version, like `cpython-3.12.13-…`.
   3. Run `uv sync` again from PowerShell.
 - **A download script stops with "error: … is missing after extraction"**: the download was cut short or unpacked badly. Run the same script again.
-- **A test fails**: from the `brickbuilder-mcp` folder, run all three:
+- **A test fails**: from the `brickbuilder-mcp` folder, run them all:
   ```
   uv run python tests/test_joints.py
   uv run python tests/test_snaps.py
   uv run python tests/test_part_search.py
+  uv run python tests/test_strength.py
+  uv run python tests/test_rebrickable.py
   ```
   Then show Claude the output.
 

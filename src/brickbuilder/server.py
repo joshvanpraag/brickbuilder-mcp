@@ -428,6 +428,9 @@ def part_info(part: str) -> str:
         conn = snaps.summary(pid)
         if conn:
             lines.append("connectors (LDCad snap data): " + ", ".join(f"{n} {k}" for k, n in sorted(conn.items())))
+    from . import rebrickable
+    if rebrickable.available():
+        lines.append(rebrickable.summary(pid))
     return "\n".join(lines)
 
 
@@ -442,7 +445,7 @@ def _shape_or_none(pid: str) -> dict | None:
 def find_parts(query: str = "", footprint: str | None = None, height: str | None = None,
                tags: list[str] | None = None, joints: list[str] | None = None,
                bottom_width: str | None = None, top_width: str | None = None,
-               include_prints: bool = False, limit: int = 25) -> str:
+               include_prints: bool = False, color: int | str | None = None, limit: int = 25) -> str:
     """Search the whole LDraw library (about 25,000 parts) by words and by shape.
     query: words from the part name, category or keywords ('curved slope', 'bracket',
       'dome'); builder words work too: 'snot'/'sideways' (side studs), 'smooth' (no top
@@ -458,14 +461,24 @@ def find_parts(query: str = "", footprint: str | None = None, height: str | None
       pin, pin_hole, axle, axle_hole, finger_m, finger_f.
     bottom_width / top_width: the part's width in studs at its bottom / top quarter, a
       number or range ('1-2'), to find parts that taper or flare between two sizes.
+    color: only parts LEGO really produced in this colour (name or code), from the
+      Rebrickable catalogue (scripts/fetch_rebrickable.sh).
     Each result: id, footprint and height, width bottom->top, tags, connectors, name."""
     _require_library()
     if not part_index.available():
         return ("The part index has not been built yet. Call build_part_index (takes a few "
                 "minutes, once), or run: uv run python scripts/build_part_index.py")
     try:
+        want = None
+        if color is not None and color != "":
+            from . import rebrickable
+            if not rebrickable.available():
+                return "The colour filter needs the Rebrickable catalogue: run scripts/fetch_rebrickable.sh."
+            want = ldraw.resolve_colour(color).code
         hits = part_index.search(query, footprint, height, tags, joints, bottom_width, top_width,
-                                 include_prints, limit)
+                                 include_prints, 200 if want is not None else limit)
+        if want is not None:
+            hits = [h for h in hits if want in rebrickable.colours_of(h["id"])][:max(1, int(limit))]
     except ValueError as e:
         raise BuildError(str(e)) from None
     if not hits:
@@ -667,6 +680,43 @@ def check_model() -> str:
         lines.append("OK: no parts pass into each other.")
     lines.append("(check_strength shows where the model would break: sections hanging on one weak link.)")
     return "\n".join(lines)
+
+
+@mcp.tool()
+def check_colors() -> str:
+    """Are the model's colours real? Lists every part used in a colour LEGO never produced
+    for that part (from Rebrickable's set inventories), with the closest real colours.
+    Needs scripts/fetch_rebrickable.sh."""
+    from . import rebrickable
+    if not rebrickable.available():
+        return "Needs the Rebrickable catalogue: run scripts/fetch_rebrickable.sh (about 17 MB)."
+    m = _model()
+    probs = rebrickable.colour_problems(m)
+    if not probs:
+        return f"OK: all {len(m.parts)} parts come in real colours."
+    return f"{len(probs)} part/colour combination(s) LEGO never made:\n- " + "\n- ".join(probs)
+
+
+@mcp.tool()
+def export_parts_list(path: str | None = None) -> str:
+    """Write the model's parts list: a CSV in Rebrickable's import format (Part, Color,
+    Quantity) and a readable .txt next to it. To buy the parts: on rebrickable.com, import
+    the CSV as a part list, then export it as a BrickLink wanted list (or see which of your
+    own sets already have the parts)."""
+    from . import rebrickable
+    m = _model()
+    out = Path(path).expanduser() if path else EXPORTS_DIR / f"{safe_name(m.name)}_parts.csv"
+    if out.suffix.lower() != ".csv":
+        raise BuildError("path must end in .csv")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    csv_text, readable = rebrickable.parts_list(m)
+    out.write_text(csv_text)
+    out.with_suffix(".txt").write_text(readable + "\n")
+    kinds = len(csv_text.strip().splitlines()) - 1
+    note = "" if rebrickable.available() else " (run scripts/fetch_rebrickable.sh for part names and Rebrickable numbers)"
+    return (f"Wrote {out} and {out.with_suffix('.txt').name}: {len(m.parts)} parts in {kinds} part/colour "
+            f"lines{note}.\nTo buy them: import the CSV as a part list on rebrickable.com, then export a "
+            "BrickLink wanted list.")
 
 
 @mcp.tool()

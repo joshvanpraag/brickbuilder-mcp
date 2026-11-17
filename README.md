@@ -39,6 +39,7 @@ scripts/fetch_ldraw.sh   # downloads the LDraw parts library (~145 MB zip) into 
 scripts/fetch_ldcad_snaps.sh   # connection data for pins, axles, clips, hinges (~2 MB)
 uv sync
 uv run python scripts/build_part_index.py   # part search index (a few minutes, once)
+scripts/fetch_rebrickable.sh   # real-world catalogue: colours each part was made in (~17 MB)
 claude mcp add brickbuilder -s user -- uv --directory "$PWD" run brickbuilder-mcp
 ```
 
@@ -110,6 +111,8 @@ builds with you.
 | `image_to_grid`, `build_mosaic` | Quantize pictures to LEGO colours; build mosaics |
 | `describe_model`, `check_model` | Per-level maps, part counts, floating/loose-part detection from real stud contact |
 | `check_strength` | Where the model would break: sections hanging on one weak link, ranked by weight, leverage and link strength |
+| `check_colors` | Parts used in a colour LEGO never made for them, with the closest real colours |
+| `export_parts_list` | Parts list as a Rebrickable import CSV plus a readable list, to buy the bricks |
 | `render_model` | Preview sheet with real part shapes (or `detail="simple"`), optionally beside the reference picture |
 | `export_ldr` | LDraw file, one build step per level; `legacy_ids` for older part numbers |
 
@@ -245,6 +248,24 @@ reports how many of each kind are kept and dropped, and on which parts. Every ba
 axle and ball passes. About 98% of pin holes and 94% of axle holes pass, and the ones
 dropped are mostly on Duplo, electric, train and minifig parts.
 
+### Real parts in real colours
+
+The LDraw library says what a part looks like, not whether LEGO ever made it in tan.
+`scripts/fetch_rebrickable.sh` downloads Rebrickable's free catalogue (about 17 MB) and
+indexes which colours each part really came in, in how many sets, and in which years.
+
+- **`part_info`:** adds a "Real world" line, for example *made in 1 colour, 2014-2026:
+  Dark Bluish Gray (694 sets)* for the small ball plate 14417.
+- **`find_parts(color=...)`:** only lists parts that were made in that colour.
+- **`check_colors`:** flags every part in the model whose colour never existed for it,
+  and suggests the closest real colours. For example, the small ball-joint plates
+  14417 / 14704 were only ever made in dark bluish gray.
+- **`export_parts_list`:** writes the model's parts as a CSV that rebrickable.com can
+  import as a part list. From there you can export a BrickLink wanted list to buy the
+  bricks, or see which of your own sets already contain them.
+
+Printed LDraw parts are looked up as their plain base part.
+
 ### Strength check
 
 `check_model` says whether everything is connected. `check_strength` says where it would
@@ -357,6 +378,8 @@ licensed CC BY 2.0 by its authors; it is not included in this repository.
 Connection (snap) data comes from the
 [LDCad shadow library](https://github.com/RolandMelkert/LDCadShadowLibrary) by Roland
 Melkert, licensed CC BY-SA 4.0; it is also downloaded separately, not included here.
+The real-world catalogue (colours, sets, years) comes from [Rebrickable](https://rebrickable.com)'s
+free downloads, fetched at setup and not included here.
 
 The reference stills shown next to the builds are from *The Phoenician Scheme* (2025),
 *The Big Lebowski* (1998) and *The Lord of the Rings: The Two Towers* (2002). They are
