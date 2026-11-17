@@ -60,7 +60,9 @@ _UP_MATRIX = {
     "left": np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]], dtype=float),
 }
 CLASH_VOXELS = 2  # tolerated shared 4 LDU voxels (curved surfaces that only touch)
-CLASH_POINTS = 2  # 2 LDU sample points allowed inside another part (curved faces that touch)
+CLASH_POINTS = 2  # sample points (2 LDU apart) allowed inside another part, each way round:
+                  # two curved faces that only touch (round ends at an angle) give a couple
+                  # of points each way from the 4 LDU voxel outline; a real overlap gives dozens
 
 
 def parse_up(up: str | None) -> str:
@@ -323,7 +325,7 @@ class Model:
             if np.any(olo >= hi - 0.5) or np.any(ohi <= lo + 0.5):
                 continue
             theirs = geometry.samples(other.part) @ other.matrix.T + other.pos
-            if _penetration(mine, other) + _penetration(theirs, g) > CLASH_POINTS:
+            if max(_penetration(mine, other), _penetration(theirs, g)) > CLASH_POINTS:
                 hits.append(i)
         return hits
 
@@ -662,8 +664,9 @@ class Model:
                     for k, g in ((i, gi), (j, gj)):
                         if k not in pts:
                             pts[k] = geometry.samples(g.part) @ g.matrix.T + g.pos
-                    n = _penetration(pts[i], gj) + _penetration(pts[j], gi)
-                    if n > CLASH_POINTS:
+                    a, b = _penetration(pts[i], gj), _penetration(pts[j], gi)
+                    n = a + b
+                    if max(a, b) > CLASH_POINTS:
                         out.append((i, j, n))
                         if len(out) >= limit:
                             return out

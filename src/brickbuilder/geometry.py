@@ -608,20 +608,49 @@ def _column_grid(part: str):
     return x0, z0, top, bot
 
 
+FINE = 1.0  # LDU: the overlap test's outline grid (the 4 LDU voxels bulge past round edges)
+
+
+@functools.lru_cache(maxsize=4096)
+def _fine_grid(part: str):
+    """Like _column_grid, on a 1 LDU grid traced from the real surface: the outline used to
+    test overlaps. On the 4 LDU grid a round part's outline sticks out up to ~2 LDU past its
+    real curve, so a brick that only touches a round column read as overlapping it."""
+    mesh = load(part)
+    polys = mesh.polys[mesh.body]
+    if not len(polys):
+        return 0.0, 0.0, np.full((1, 1), np.nan), np.full((1, 1), np.nan)
+    tris = np.concatenate([polys[:, [0, 1, 2]], polys[:, [0, 2, 3]]])
+    pts = _sample_surface(tris, 0.7)
+    tol = 0.01
+    x0, z0 = math.floor(pts[:, 0].min() + tol), math.floor(pts[:, 2].min() + tol)
+    nx = int(math.floor(pts[:, 0].max() - tol - x0)) + 1
+    nz = int(math.floor(pts[:, 2].max() - tol - z0)) + 1
+    ix = np.clip(np.floor((pts[:, 0] - x0) / FINE - 1e-6).astype(int), 0, nx - 1)
+    iz = np.clip(np.floor((pts[:, 2] - z0) / FINE - 1e-6).astype(int), 0, nz - 1)
+    top = np.full((nx, nz), np.inf)
+    bot = np.full((nx, nz), -np.inf)
+    np.minimum.at(top, (ix, iz), pts[:, 1])
+    np.maximum.at(bot, (ix, iz), pts[:, 1])
+    empty = ~np.isfinite(top) | (bot - top <= 0.5)
+    top[empty], bot[empty] = np.nan, np.nan
+    return float(x0), float(z0), top, bot
+
+
 def contains(part: str, pts: np.ndarray, margin: float = 1.5) -> np.ndarray:
     """Which local-frame points lie inside the part's solid by more than `margin` LDU
     (points on or near a surface do not count, so parts that only touch never clash)."""
     if not len(pts):
         return np.zeros(0, bool)
-    x0, z0, top, bot = _column_grid(part)
+    x0, z0, top, bot = _fine_grid(part)
     nx, nz = top.shape
     inside = np.ones(len(pts), bool)
     lo_y = np.full(len(pts), -np.inf)
     hi_y = np.full(len(pts), np.inf)
     for dx in (-margin, margin):
         for dz in (-margin, margin):
-            i = np.floor((pts[:, 0] + dx - x0) / VOXEL).astype(int)
-            k = np.floor((pts[:, 2] + dz - z0) / VOXEL).astype(int)
+            i = np.floor((pts[:, 0] + dx - x0) / FINE).astype(int)
+            k = np.floor((pts[:, 2] + dz - z0) / FINE).astype(int)
             ok = (i >= 0) & (i < nx) & (k >= 0) & (k < nz)
             t = np.full(len(pts), np.nan)
             b = np.full(len(pts), np.nan)
@@ -652,8 +681,23 @@ def samples(part: str) -> np.ndarray:
         return v
     offs = np.array([[dx, dy, dz] for dx in (-1, 1) for dy in (-1, 1) for dz in (-1, 1)], float)
     pts = (v[:, None, :] + offs[None, :, :]).reshape(-1, 3)
+    # keep only points inside the fine (1 LDU) outline: the 4 LDU voxels of a round part
+    # stick out past its real curve, and those points would clash with parts that only touch
+    pts = pts[_inside_outline(part, pts)]
     bore = _bore(part)
     return pts[np.hypot(pts[:, 0], pts[:, 1]) > bore] if bore else pts
+
+
+def _inside_outline(part: str, pts: np.ndarray) -> np.ndarray:
+    """Which local points fall in a filled column of the fine outline (x and z only)."""
+    x0, z0, top, bot = _fine_grid(part)
+    nx, nz = top.shape
+    i = np.floor((pts[:, 0] - x0) / FINE).astype(int)
+    k = np.floor((pts[:, 2] - z0) / FINE).astype(int)
+    ok = (i >= 0) & (i < nx) & (k >= 0) & (k < nz)
+    keep = np.zeros(len(pts), bool)
+    keep[ok] = ~np.isnan(top[i[ok], k[ok]])
+    return keep
 
 
 @functools.lru_cache(maxsize=4096)

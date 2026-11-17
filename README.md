@@ -135,6 +135,8 @@ tiles and wedges. To build that way:
 - `attach_parts` presses a new part's receiver (an underside stud hole, see
   `part_info`) onto one of those studs. The new part's top then faces the stud's
   direction, and `rot` spins it about that direction.
+- Overlap checks follow each part's real outline to 1 LDU, so a part that only touches a
+  round column or a rounded end at an angle is not counted as an overlap.
 - `turn` (on `attach_parts`) turns a part held by one stud to any angle, e.g. 45
   degrees: a flat window on the angled face of a bay, or a panel turned a few
   degrees. It still counts as connected through that one stud.

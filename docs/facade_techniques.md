@@ -63,11 +63,28 @@ window is in roughly the right place. Generate them instead:
   the seams of the first. The bottom layer joins the plate course under the walls, so the
   floor locks to the building and to itself. Check that no plate pokes past a curved wall.
 - **Angled bays: one shape top to bottom.** A bay is either round all the way up or angled
-  all the way up, never round, then angled, then round. For an angled (three-sided) bay use
-  the angled versions of each layer: wedge plate 3x3 cut corner (2450), facet brick 3x3
-  (2462) and tile 2x2 with a cut corner (27263). There is no angled corner window, so each
-  angled face takes an ordinary flat window turned 45 degrees on a single stud
-  (`attach_parts` with `turn=45`), boxed in by the wedge plates above and below.
+  all the way up, never round, then angled, then round.
+- **Angled bays that close properly: round columns at every corner.** A flat window turned
+  45 degrees onto a grid bay (wedge plates, facet bricks) always leaves a gap: the angled face
+  is 2.8 studs long and nothing standard fills the rest. What works, as in hinged LEGO bays:
+  - stand a round 1x1 brick column (3062b) at every corner, back and front;
+  - make each wall piece end exactly where it touches a column (0.5 stud from its centre),
+    so faces meet the columns with no gap at any angle;
+  - space the columns so the walls fit whole parts: with 2-stud windows, columns 3 studs
+    apart; for the front pair to land on the same line, the angled walls run at about 48
+    degrees (cos = 2/3), 3 studs from back column to front column;
+  - lock everything with rings of 1x2 plates with rounded ends (35480) at the footing, the
+    bands and the top, in a brick bond: rounded ends turn at the corners without bumping;
+  - place the angled parts by exact position and direction (`attach_parts` with `turn`, or
+    `ldu` and a matrix);
+  - tie the back columns into the wall with a plate across the bay's back row;
+  - close the top with tiles on the angled ring (no studs) and a lid plate held by the front
+    ring.
+  This needs depth: the bay stands out about 2.2 studs from its back columns. A shallow bay
+  (1 stud) between pilasters cannot do it; keep that one round.
+- **Taller parts over stacks of plates.** Where a gap is 3 plates or more, use a brick (or a
+  facet brick) rather than a stack of plates: fewer parts and cheaper. Keep thin plates for
+  details that really are 1 or 2 plates tall, like band lines.
 - **No arches over doors in a hollow building.** An arch brick (3659) is open underneath, and
   over a door frame that opening looks straight into the empty inside. Use a solid lintel
   instead: a masonry 1x4 (15533) with a curved keystone (37352) on top.
