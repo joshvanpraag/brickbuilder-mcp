@@ -63,11 +63,21 @@ direction. render_model draws real part shapes by default.
 Joints, for posed, organic models (modules at any angle, not just 90 degree steps):
 - Ball joints (joint-8): balls 14417 (on a 1x2 plate's side), 22890 (on the end), 3170
   (both ends), 22484 (bar); sockets 14704 (1x2 plate, centre), 14418 (end), 63082, 98263.
-- Hinges: 3937 (hinge base 1x2) + 6134 (hinge top 2x2), any angle.
+- Large balls (only with each other): towballs 3731, 15456, 3614a, 3184 into socket 3730
+  (tilt up to 60 degrees); brick 2x2 with two balls 17114 into 2x2 socket bricks 62712,
+  92013, 57910, 67696.
+- Hinges, any angle (bend): 3937 (hinge base 1x2) + 6134 (hinge top 2x2); hinge plates
+  2429 + 2430 (1x4 swivel, turns flat); locking hinges 44301a + 44302a.
+- Clips on bars: clips (61252, 63868, 60470, 15712, 11090, 11476 and any part drawn with a
+  clip) grip bars (handles 60478, 48336, 2540, 26047 and plain bars such as 87994 Bar 3L).
+  bend turns the clip round the bar, slide (LDU) moves it along the bar, flip turns it
+  end for end. At bend 0 the clip part stands opposite the bar's part, the same way up.
+- Turntables, any angle (bend) about the vertical axis: 3403 + 3404, 3680 + 3679, and the
+  flat base 61485 under a round plate with snapstud (60474, 11213, 74611, 89523, 87081).
 - list_joints(id) lists a placed part's joints and what is connected to each.
 - attach_joint connects a new part's joint to a placed part's joint. For a ball joint,
   bend / swing tilt it (up to 45 degrees combined) and twist turns it about its axis;
-  for a hinge, bend is the hinge angle. Parts attached to a tilted part follow its tilt,
+  for every other joint, bend is the angle about its axis. Parts attached to a tilted part follow its tilt,
   so build a module (arm, tail segment, panel) outward from its joint.
 - check_model also lists parts whose real shapes interpenetrate, so tilted modules never
   pass through each other unnoticed.
@@ -153,9 +163,13 @@ class JointSpec(BaseModel):
     to_id: int = Field(description="Placed part whose joint the new part connects to")
     to_joint: int = Field(0, description="Joint index on to_id (see list_joints)")
     joint: int = Field(0, description="Which joint of the new part (see part_info)")
-    bend: float = Field(0, description="Degrees. Ball joint: tilt about the joint's X axis. Hinge: hinge angle")
+    bend: float = Field(0, description="Degrees. Ball joint: tilt about the joint's X axis. "
+                        "Hinge, clip/bar, turntable: the angle about the joint's axis")
     swing: float = Field(0, description="Degrees, ball joint only: tilt about the joint's Y axis")
     twist: float = Field(0, description="Degrees, ball joint only: turn about the joint's axis")
+    slide: float = Field(0, description="Clip on bar only: LDU along the bar from its centre "
+                         "(20 LDU = 1 stud; list_joints shows how far each bar allows)")
+    flip: bool = Field(False, description="Clip on bar only: turn the new part end for end on the bar")
 
 
 class Region(BaseModel):
@@ -317,10 +331,12 @@ def list_studs(id: int, free_only: bool = False) -> str:
 
 @mcp.tool()
 def attach_joint(parts: list[JointSpec]) -> str:
-    """Connect parts by ball joints or hinges, at any angle. Each new part's joint `joint`
-    goes onto joint `to_joint` of placed part `to_id` (ball into socket, socket onto ball,
-    hinge top 6134 onto hinge base 3937). Ball joints: bend and swing tilt the new part up
-    to 45 degrees combined, twist turns it about the joint axis. Hinges: bend is the angle.
+    """Connect parts by joints at any angle. Each new part's joint `joint` goes onto joint
+    `to_joint` of placed part `to_id`: ball into socket (joint-8, towball, large 2x2 ball),
+    clip onto bar, or one half of a hinge, hinge plate or turntable onto the other. Ball
+    joints: bend and swing tilt the new part (45 degrees combined, 60 for towballs), twist
+    turns it about the joint axis. Hinges, clips and turntables: bend is the angle about the
+    axis; a clip also takes slide (LDU along the bar) and flip.
     Then attach_parts onto the tilted part to build the module outward; everything on it
     follows the tilt. Collisions are checked against real part shapes."""
     m = _model()
@@ -331,7 +347,7 @@ def attach_joint(parts: list[JointSpec]) -> str:
     for spec in parts:
         try:
             p = m.attach_joint(spec.part, spec.color, spec.to_id, spec.to_joint, spec.joint,
-                               spec.bend, spec.swing, spec.twist)
+                               spec.bend, spec.swing, spec.twist, spec.slide, spec.flip)
             ok.append(f"#{p.id} {p.part}")
         except (BuildError, ldraw.LDrawError) as e:
             errors.append(f"{spec.part} on #{spec.to_id} joint {spec.to_joint}: {e}")
@@ -344,22 +360,24 @@ def attach_joint(parts: list[JointSpec]) -> str:
 
 @mcp.tool()
 def list_joints(id: int) -> str:
-    """List a placed part's joints (balls, sockets, hinges): index (for attach_joint), kind,
-    position (x, z in studs, y in plates), the direction its axis points and what is
-    connected to it."""
+    """List a placed part's joints (balls, sockets, hinges, clips, bars, turntables): index
+    (for attach_joint), kind, position (x, z in studs, y in plates), the direction its axis
+    points, how far a clip can slide on a bar, and what is connected to it."""
+    from . import geometry
     from .model import direction_name
     m = _model()
     if id not in m.parts:
         raise BuildError(f"No part #{id}")
-    js = m.geometry(id).joints()
+    js = m.geometry(id).joints_full()
     if not js:
         return f"#{id} {m.parts[id].part} has no joints"
     used = m.joint_usage(id)
     lines = [f"#{id} {m.parts[id].part} ({ldraw.part_title(m.parts[id].part)}):"]
-    for i, ((kind, c, f), who) in enumerate(zip(js, used)):
-        axis = f[:, 0] if kind.startswith("hinge") else f[:, 2]
+    for i, ((kind, c, f, s), who) in enumerate(zip(js, used)):
+        axis = f[:, 2] if kind in geometry.BALL_KINDS else f[:, 0]
         where = f"x={c[0] / 20 + 0:.2f} y={-c[1] / 8 + 0:.2f} z={c[2] / 20 + 0:.2f}"
-        lines.append(f"  joint {i}: {kind:10} at {where}  axis {direction_name(axis, strict=False)}" +
+        room = f"  slide +-{s:g} LDU" if kind == "bar" else ""
+        lines.append(f"  joint {i}: {kind:10} at {where}  axis {direction_name(axis, strict=False)}{room}" +
                      (f"  <- #{who} {m.parts[who].part}" if who is not None else "  free"))
     return "\n".join(lines)
 
@@ -421,7 +439,9 @@ def find_parts(query: str = "", footprint: str | None = None, height: str | None
       inverted, dome, cone, wedge, arch, tile, quarter, corner, half, smooth_top,
       side_studs, down_studs, no_underside, bracket, hinge, clip, bar, ball, socket,
       technic, offset, printed.
-    joints: joint kinds the part must have (e.g. 'ball', 'socket', 'hinge_base').
+    joints: joint kinds the part must have, any of: ball, socket, towball, towball_socket,
+      large_ball, large_socket, hinge_base, hinge_top, clip, bar, swivel_base, swivel_top,
+      click_hinge_1, click_hinge_2, turntable_base, turntable_top, flat_turntable, snapstud.
     bottom_width / top_width: the part's width in studs at its bottom / top quarter, a
       number or range ('1-2'), to find parts that taper or flare between two sizes.
     Each result: id, footprint and height, width bottom->top, tags, connectors, name."""
@@ -615,8 +635,8 @@ def describe_model(levels: list[int] | None = None, all_levels: bool = False, li
 def check_model() -> str:
     """Check structure: floating groups (not connected to anything touching the ground),
     loose groups (standing on the ground but not attached to the main body), and parts whose
-    real shapes pass into each other. Connections count studs in any direction, ball joints
-    and hinges."""
+    real shapes pass into each other. Connections count studs in any direction and every
+    joint (balls, hinges, clips on bars, turntables)."""
     m = _model()
     r = m.check()
     lines = [f"{r['parts']} parts in {r['connected_groups']} stud-connected group(s); largest: {r['group_sizes']}"]

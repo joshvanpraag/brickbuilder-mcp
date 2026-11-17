@@ -100,7 +100,7 @@ builds with you.
 | `list_parts`, `list_colors` | Curated catalog, full LDraw library search, colour codes |
 | `add_parts`, `remove_parts`, `undo` | Place parts on the stud grid, with collision checks; `up`/`ldu` for turned parts |
 | `attach_parts` | Press a part onto any stud, in any direction (sideways building / SNOT) |
-| `attach_joint` | Connect parts by ball joint or hinge at any angle (posed modules) |
+| `attach_joint` | Connect parts by ball joint, hinge, clip on bar or turntable at any angle (posed modules) |
 | `part_info`, `list_studs`, `list_joints` | A part's studs, receivers, joints and shape (width at four heights); a placed part's studs/joints and what is on them |
 | `find_parts` | Search all ~25,000 LDraw parts by words and by shape: footprint, height, taper (width at bottom and top), tags like round / widens_upward / curved / side_studs |
 | `preview_part` | Render one part from several angles, to see its real shape before building with it |
@@ -148,13 +148,77 @@ that are not 90 degree steps:
   part's LDraw file. `attach_joint` puts the new part's ball in the socket (or the
   socket on the ball): `bend` and `swing` tilt it up to 45 degrees combined, and
   `twist` turns it about the joint's axis.
-- **Hinges:** 3937 (hinge base) with 6134 (hinge top). `bend` is the hinge angle.
+- **Large balls** (each system only mates with itself): towballs 3731, 15456, 3614a
+  and 3184 into the towball socket 3730 (up to 60 degrees of tilt); the brick 2x2 with
+  two balls 17114 into the 2x2 socket bricks 62712, 92013, 57910 and 67696 (45 degrees).
+  Same `bend` / `swing` / `twist` as joint-8.
+- **Hinges:** 3937 (hinge base) with 6134 (hinge top); hinge plates 2429 + 2430 (1x4
+  swivel, turns in its own plane); locking hinge plates 44301a + 44302a (any part drawn
+  with the `clh4` / `clh6` click-hinge primitives). `bend` is the hinge angle, any value.
+- **Clips on bars:** clips are read from the `clip*.dat` primitives (61252, 63868,
+  60470, 11090, 11476, ...; 15712 by override). Bars are handles (pairs of `phandle*.dat`,
+  e.g. 60478, 48336, 2540, 26047) and plain bars (4 LDU cylinders in parts titled
+  "Bar ...", e.g. 87994 Bar 3L). `bend` turns the clip round the bar, `slide` moves it
+  along the bar in LDU (`list_joints` shows each bar's range) and `flip` turns the new
+  part end for end. At `bend` 0 the clip's part stands on the far side of the bar from
+  the bar's part, the same way up, so 63868 on 60478 continues the plate flat.
+- **Turntables:** 3403 + 3404, 3680 + 3679, and the flat base 61485 under a round plate
+  with snapstud (60474, 11213, 74611, 89523, 87081). `bend` turns the top about the
+  vertical axis.
 - **Building out from a joint:** `attach_parts` onto a tilted part follows its tilt,
   so a whole module builds outward from its joint at that angle.
 - **Checks:** `check_model` counts joints as connections. It also reports any parts
   whose real shapes pass into each other: points every 2 LDU inside each part are
   tested against the other part's solid, in that part's own frame, with a 1.5 LDU
   margin. So touching is fine, and tilted parts can't hide an overlap.
+
+### Joint guide in plain words
+
+Every joint works the same way: place the first part, ask `list_joints` for its joint
+numbers, then call `attach_joint` with the second part. `bend` is the angle in degrees.
+Each kind of joint only connects to its own partner; the tool says so if you mix them.
+
+| Joint | Part A (place first) | Part B (attach) | What you can set |
+|---|---|---|---|
+| Small ball (joint-8) | 14417, 22890, 3170, 22484 | sockets 14704, 14418, 63082, 98263 | `bend`, `swing` (tilt, 45 degrees max together), `twist` |
+| Towball | 3731, 15456, 3614a, 3184 | socket 3730 | `bend`, `swing` (60 degrees max), `twist` |
+| Big ball | 17114 (brick 2x2 with a ball at each end) | socket bricks 62712, 92013, 57910, 67696 | `bend`, `swing` (45 degrees max), `twist` |
+| Hinge | 3937 hinge base | 6134 hinge top | `bend` = hinge angle |
+| Swivel hinge plate (turns flat) | 2429 | 2430 | `bend` = angle in the plate's own plane |
+| Locking hinge plate | 44301a | 44302a | `bend` = fold angle (negative folds up) |
+| Clip on a bar | a bar: handles 60478, 48336, 2540, 26047 or plain bars like 87994 | a clip: 61252, 63868, 60470, 15712, 11090, 11476 | `bend` = angle round the bar, `slide` = move along the bar (LDU, 20 = one stud), `flip` = turn end for end |
+| Turntable | 3403 (4x4), 3680 (2x2), 61485 (flat 4x4) | 3404, 3679, or a round plate with snapstud (60474, 11213, 74611, 89523, 87081) on 61485 | `bend` = turn about the vertical axis |
+
+Either part can be placed first: a clip can go onto a placed bar, or a bar through a
+placed clip.
+
+Example: a hand-hold plate (60478, part #1) with a clip plate swung down 45 degrees:
+
+```json
+attach_joint(parts=[{"part": "61252", "color": "blue", "to_id": 1, "to_joint": 0,
+                     "joint": 0, "bend": 45}])
+```
+
+A clip plate (63868) slid 10 LDU (half a stud) along the long handle of 48336 (#1):
+
+```json
+attach_joint(parts=[{"part": "63868", "color": "yellow", "to_id": 1, "bend": -30, "slide": 10}])
+```
+
+A big ball socket brick on the ball of 17114 (#1), tilted 20 degrees:
+
+```json
+attach_joint(parts=[{"part": "62712", "color": "blue", "to_id": 1, "to_joint": 0, "bend": 20}])
+```
+
+A turntable top turned 30 degrees on its base 3403 (#1):
+
+```json
+attach_joint(parts=[{"part": "3404", "color": "red", "to_id": 1, "bend": 30}])
+```
+
+Not supported yet: 48729a / 48729b (bar with clip). Their clip is drawn without the
+usual clip shape, so only their bar end can be used.
 
 ### Finding parts
 
@@ -186,9 +250,11 @@ saved as `data/part_index.json`; rebuild it after updating the LDraw library.
   file always uses the real part.
 - `render_model` draws real part shapes by default; `detail="simple"` is faster
   and shows round parts and arches as boxes.
-- Connections modelled: studs in any direction, joint-8 ball joints and the 3937/6134
-  hinge. Clips, bars and Technic pins/axles are exported correctly but do not count as
-  connections in `check_model` yet.
+- Connections modelled: studs in any direction and the joints above (balls, hinges,
+  clips on bars, turntables). Technic pins/axles are exported correctly but do not count
+  as connections in `check_model` yet.
+- Tests: `python tests/test_joints.py` (or `pytest tests`) attaches every joint family
+  at several angles and checks there is one connected group and no overlaps.
 
 ## Very large builds
 

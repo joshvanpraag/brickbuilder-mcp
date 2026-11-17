@@ -26,18 +26,95 @@ from . import ldraw
 
 VOXEL = 4.0  # LDU; 1 stud = 5 voxels, 1 plate = 2 voxels
 
-# Joint primitives: (kind) by file name. The primitive's origin is the joint centre and its
-# frame is the joint frame: a joint-8 ball sits at the origin with its stem along +Z; a
-# joint-8 socket cup is centred on the origin, opening toward -Z (its part is on +Z).
-_JOINT_PRIMS = {"joint8ball.dat": "ball", "joint8socket1.dat": "socket",
-                "joint8socket2.dat": "socket", "joint8socket3.dat": "socket"}
-# Joints LDraw has no primitive for: part -> [(kind, origin, frame columns X, Y, Z)].
-# Hinge 3937 + 6134: both pivot about the line along local X through (0, 10, 0).
+# Joints. Every joint is (kind, origin, frame, slide) in the part's local frame; frame columns
+# are the joint's X, Y, Z axes and slide is how far (LDU) a clip may sit off the joint centre
+# along X (bars only, 0 elsewhere).
+#
+# Ball families (joint-8 ball / socket, towball, large 2x2 brick ball): the joint centre is
+# the ball centre, Z points from the joint toward its own part (a ball's stem, the side of
+# a socket cup that is closed).
+#
+# Rotation joints turn about frame X:
+#   clip / bar and click hinges are "opposed": Z points from the axis toward the part's body
+#   and Y toward the part's underside, so at angle 0 the two parts stand on opposite sides
+#   of the axis, the same way up (a clip plate continuing a handle plate, a hinge lying flat).
+#   hinge (3937 / 6134), swivel hinge plates and turntables are "aligned": at angle 0 the
+#   two frames coincide, which is the assembled position LDraw draws them in.
+BALL_KINDS = {"ball", "socket", "towball", "towball_socket", "large_ball", "large_socket"}
+OPPOSED_KINDS = {"clip", "bar", "click_hinge_1", "click_hinge_2"}
+SLIDE_KINDS = {"clip", "bar"}
+# Largest tilt (degrees, bend and swing combined) each ball system allows.
+BALL_TILT = {"ball": 45, "socket": 45, "towball": 60, "towball_socket": 60,
+             "large_ball": 45, "large_socket": 45}
+CLIP_WIDTH = 8.0  # LDU of bar a clip grips
+
+_PAIRS = [("ball", "socket"), ("towball", "towball_socket"), ("large_ball", "large_socket"),
+          ("hinge_base", "hinge_top"), ("clip", "bar"), ("swivel_base", "swivel_top"),
+          ("click_hinge_1", "click_hinge_2"), ("turntable_base", "turntable_top"),
+          ("turntable2_base", "turntable2_top"), ("flat_turntable", "snapstud")]
+JOINT_PAIRS = {p for a, b in _PAIRS for p in ((a, b), (b, a))}
+
+# Joint primitives by file name: (kind, centre, axis) in the primitive's frame. For ball
+# primitives the frame is the primitive's own; for the others only the axis is taken from
+# the primitive and the rest of the frame is fitted to the part (see _fit_frame).
+_JOINT_PRIMS = {"joint8ball.dat": ("ball", None, None), "joint8socket1.dat": ("socket", None, None),
+                "joint8socket2.dat": ("socket", None, None), "joint8socket3.dat": ("socket", None, None)}
+# Clips that grip a 4 LDU (radius) bar. Horizontal clips hold the bar along X through
+# (0, 2, 0), vertical ones along Y, top clips along Z. clip4 (road signs) grips plates, not bars.
+for _name, _c, _a in [("clip1", (0, 0, 0), (0, 1, 0)), ("clip2", (0, 0, -10), (0, 1, 0)),
+                      ("clip3", (0, 2, 0), (1, 0, 0)), ("clip5", (0, 0, 0), (0, 1, 0)),
+                      ("clip6", (0, 2, 0), (1, 0, 0)), ("clip7", (0, 0, 0), (0, 1, 0)),
+                      ("clip8", (0, -6, 0), (0, 0, 1)), ("clip9", (0, 0, -10), (0, 1, 0)),
+                      ("clip10", (0, 0, -10), (0, 1, 0)), ("clip11", (0, -6, 0), (0, 0, 1)),
+                      ("clip12", (0, 0, 0), (0, 1, 0)), ("clip13", (0, 0, 0), (0, 1, 0)),
+                      ("clip14", (0, 0, -10), (0, 1, 0)), ("clip15", (0, 0, 0), (0, 1, 0)),
+                      ("clip16", (0, 0, 0), (0, 1, 0))]:
+    _JOINT_PRIMS[_name + ".dat"] = ("clip", _c, _a)
+# Handle attachments: one end of a handle bar. Paired into a bar by _pair_handles.
+_JOINT_PRIMS["phandle1.dat"] = ("handle_end", (0, 2, 0), (1, 0, 0))
+_JOINT_PRIMS["phandle2.dat"] = ("handle_end", (0, 2, 0), (1, 0, 0))
+# Click (locking) hinge halves: clh6 single finger, clh4 dual finger (two mirrored halves).
+_JOINT_PRIMS["clh6.dat"] = ("click_hinge_1", (0, 0, -10), (1, 0, 0))
+_JOINT_PRIMS["clh4.dat"] = ("click_hinge_2", (0, 0, 4), (1, 0, 0))
+
+_I = np.eye(3)
+_VERTICAL = np.array([[0, 1, 0], [-1, 0, 0], [0, 0, 1]], float)  # X up (local -Y), Y = local +X
+_STEM_LEFT = np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]], float)  # Z = +X: ball on the -X end
+_STEM_RIGHT = np.array([[0, 0, -1], [0, 1, 0], [1, 0, 0]], float)  # Z = -X: ball on the +X end
+# Joints LDraw has no primitive for: part -> [(kind, origin, frame)]. Frames of None are
+# fitted to the part from the axis given instead (see _fit_frame).
 _JOINT_OVERRIDES = {
-    "3937": [("hinge_base", (0, 10, 0), np.eye(3))],
-    "6134": [("hinge_top", (0, 10, 0), np.eye(3))],
+    # Hinge 3937 + 6134: both pivot about the line along local X through (0, 10, 0).
+    "3937": [("hinge_base", (0, 10, 0), _I)],
+    "6134": [("hinge_top", (0, 10, 0), _I)],
+    # Tile 1 x 1 with Clip: clip drawn without a clip primitive, bar along Z at y=-6.
+    "15712": [("clip", (0, -6, 0), (0, 0, 1))],
+    # Towballs (8 LDU ball, stem toward +Z) and the towball socket (cup open toward -Z).
+    "3731": [("towball", (0, 4, -40), _I)],
+    "15456": [("towball", (0, 4, -40), _I)],
+    "3614a": [("towball", (0, 4, -19), _I)],
+    "3614": [("towball", (0, 4, -18), _I)],
+    "3184": [("towball", (0, 4, -28), _I)],
+    "3730": [("towball_socket", (0, 4, -30), _I)],
+    # Brick 2 x 2 with two large balls (12.8 LDU) and the 2 x 2 bricks with a socket on +X.
+    "17114": [("large_ball", (40, 10, 0), _STEM_RIGHT), ("large_ball", (-40, 10, 0), _STEM_LEFT)],
+    **{p: [("large_socket", (40, 10, 0), _STEM_RIGHT)] for p in ("62712", "92013", "57910", "67696")},
+    # Hinge plates 1 x 4 swivel: both halves turn about the vertical line through the origin.
+    "2429": [("swivel_base", (0, 0, 0), _VERTICAL)],
+    "2430": [("swivel_top", (0, 0, 0), _VERTICAL)],
+    # Turntables: top and base share the vertical axis through the origin (3403c01, 3680c01).
+    "3403": [("turntable_base", (0, 0, 0), _VERTICAL)],
+    "3404": [("turntable_top", (0, 0, 0), _VERTICAL)],
+    "3680": [("turntable2_base", (0, 0, 0), _VERTICAL)],
+    "3679": [("turntable2_top", (0, 0, 0), _VERTICAL)],
+    # Flat turntable base 4 x 4: a round plate's snapstud turns in its centre (61485c01 puts
+    # the plate's underside on the base's top).
+    "61485": [("flat_turntable", (0, 0, 0), _VERTICAL)],
+    **{p: [("snapstud", (0, 8, 0), _VERTICAL)] for p in ("60474", "11213", "74611", "89523")},
+    "87081": [("snapstud", (0, 24, 0), _VERTICAL)],
 }
-JOINT_PAIRS = {("ball", "socket"), ("socket", "ball"), ("hinge_base", "hinge_top"), ("hinge_top", "hinge_base")}
+# Plain bars LDraw draws as one cylinder: part -> (end, other end) of the bar axis.
+_BAR_OVERRIDES: dict[str, tuple] = {}
 
 # Primitives that are a stud you can press something onto (not underside tubes).
 _MALE = re.compile(r"(stud|stud-logo\d*|stud2|stud2-logo\d*|stud2a|stud6|stud6a|stud10|stud13|stud15|"
@@ -72,11 +149,15 @@ def _orthonormal(mat: np.ndarray) -> np.ndarray:
 
 @functools.lru_cache(maxsize=4096)
 def _joint_refs(name: str) -> tuple:
-    """Joint primitives inside one LDraw file: ((kind, origin (3,), frame (3,3)), ...)."""
+    """Joint primitives inside one LDraw file: ((kind, origin (3,), frame (3,3)), ...).
+    For non-ball primitives only frame column X (the axis) is meaningful."""
     name = name.strip().lower().replace("\\", "/")
     base = name.rsplit("/", 1)[-1]
     if base in _JOINT_PRIMS:
-        return ((_JOINT_PRIMS[base], np.zeros(3), np.eye(3)),)
+        kind, c, a = _JOINT_PRIMS[base]
+        if c is None:
+            return ((kind, np.zeros(3), np.eye(3)),)
+        return ((kind, np.array(c, float), _axis_frame(np.array(a, float))),)
     if _MALE.fullmatch(base) or base.startswith(("stud", "box", "rect", "edge", "4-4", "1-", "2-", "3-")):
         return ()
     path = ldraw._find(name)
@@ -93,14 +174,163 @@ def _joint_refs(name: str) -> tuple:
     return tuple(out)
 
 
+def _axis_frame(axis: np.ndarray) -> np.ndarray:
+    """Some frame whose X column is `axis` (Y and Z are refitted per part later)."""
+    x = axis / np.linalg.norm(axis)
+    helper = np.array([0.0, 1.0, 0.0]) if abs(x[1]) < 0.9 else np.array([0.0, 0.0, 1.0])
+    z = np.cross(x, helper)
+    z /= np.linalg.norm(z)
+    return np.stack([x, np.cross(z, x), z], 1)
+
+
+def _fit_frame(part: str, origin: np.ndarray, axis: np.ndarray) -> np.ndarray:
+    """Frame for a rotation joint of an "opposed" kind: X along `axis`, Z from the axis
+    toward the part's body, Y toward the part's underside (local +Y) as far as possible.
+    Signs come from the part, not from how a primitive happened to be mirrored, so two
+    parts' frames line up the same way for the same physical connection."""
+    x = axis / np.linalg.norm(axis)
+    v = voxels(part)
+    # toward the body's centre when it is clearly off the axis (1 LDU), else a fixed choice
+    cands = [(v.mean(0) - origin, 1.0)] if len(v) else []
+    cands += [(np.array([0.0, 0.0, 1.0]), 0.5), (np.array([1.0, 0.0, 0.0]), 0.5),
+              (np.array([0.0, 1.0, 0.0]), 0.5)]
+    for c, need in cands:
+        c = c - np.dot(c, x) * x
+        if np.linalg.norm(c) > need:
+            z = c / np.linalg.norm(c)
+            break
+    if np.max(np.abs(x)) > 0.999:
+        # axis-aligned joint: point Z straight along the nearest part axis, so angle 0 is
+        # square to the part rather than aimed at its (off-centre) middle
+        k = int(np.argmax(np.abs(z) * (np.abs(x) < 0.5)))
+        sign = 1.0 if z[k] > 0 else -1.0
+        z = np.zeros(3)
+        z[k] = sign
+    for c in (np.array([0.0, 1.0, 0.0]), np.array([1.0, 0.0, 0.0]), np.array([0.0, 0.0, 1.0])):
+        y = c - np.dot(c, x) * x - np.dot(c, z) * z
+        if np.linalg.norm(y) > 0.5:
+            y /= np.linalg.norm(y)
+            break
+    # right-handed: re-derive X's sign from Y and Z
+    return np.stack([np.cross(y, z), y, z], 1)
+
+
+def _pair_handles(ends: list) -> list:
+    """Pair handle attachments that face each other on one line into bars:
+    [(origin, axis, slide)]. A clip grips the free bar between the two attachments."""
+    bars, used = [], set()
+    for i, (oi, ai) in enumerate(ends):
+        if i in used:
+            continue
+        best = None
+        for j in range(i + 1, len(ends)):
+            if j in used:
+                continue
+            oj, aj = ends[j]
+            d = oj - oi
+            n = np.linalg.norm(d)
+            if n < 1 or abs(np.dot(ai, aj)) < 0.99 or abs(np.dot(d / n, ai)) < 0.99:
+                continue
+            if best is None or n < best[1]:
+                best = (j, n)
+        if best is None:
+            continue
+        j, n = best
+        used |= {i, j}
+        free = n - 6.0  # each attachment covers 3 LDU of the bar
+        bars.append(((oi + ends[j][0]) / 2, (ends[j][0] - oi) / n, max(0.0, (free - CLIP_WIDTH) / 2)))
+    return bars
+
+
+_BAR_CYLS = re.compile(r"(48/|8/)?4-4cyl[io]\.dat")
+
+
+def _plain_bars(pid: str) -> list:
+    """Bars drawn as 4 LDU radius cylinders in parts titled 'Bar ...':
+    [(origin, axis, slide)]. Collinear cylinders that touch are merged."""
+    if pid in _BAR_OVERRIDES:
+        a, b = (np.array(p, float) for p in _BAR_OVERRIDES[pid])
+        n = np.linalg.norm(b - a)
+        return [((a + b) / 2, (b - a) / n, max(0.0, (n - CLIP_WIDTH) / 2))]
+    title = ldraw.part_title(pid) or ""
+    if not re.match(r"Bar\b", title) or re.search(r"Tube|Holder|Grille|Window", title):
+        return []
+    path = ldraw._find(pid + ".dat")
+    if path is None:
+        return []
+    segs = []
+    for line in open(path, encoding="utf-8", errors="ignore"):
+        t = line.split()
+        if len(t) < 15 or t[0] != "1" or not _BAR_CYLS.fullmatch(" ".join(t[14:]).lower().replace("\\", "/")):
+            continue
+        v = list(map(float, t[2:14]))
+        pos, mat = np.array(v[:3]), np.array(v[3:]).reshape(3, 3)
+        if not (abs(np.linalg.norm(mat[:, 0]) - 4) < 0.3 and abs(np.linalg.norm(mat[:, 2]) - 4) < 0.3):
+            continue
+        segs.append((pos, pos + mat[:, 1]))
+    # merge collinear touching segments
+    merged = []
+    for a, b in segs:
+        d = b - a
+        if np.linalg.norm(d) < 1e-6:
+            continue
+        u = d / np.linalg.norm(d)
+        for k, (ma, mb, mu) in enumerate(merged):
+            off = a - ma
+            if abs(abs(np.dot(u, mu)) - 1) < 1e-3 and np.linalg.norm(off - np.dot(off, mu) * mu) < 0.5:
+                ts = [0.0, np.dot(mb - ma, mu), np.dot(a - ma, mu), np.dot(b - ma, mu)]
+                lo, hi = min(ts), max(ts)
+                if min(np.dot(a - ma, mu), np.dot(b - ma, mu)) <= np.dot(mb - ma, mu) + 0.5 and \
+                        max(np.dot(a - ma, mu), np.dot(b - ma, mu)) >= -0.5:
+                    merged[k] = (ma + lo * mu, ma + hi * mu, mu)
+                    break
+        else:
+            merged.append((a, b, u))
+    out = []
+    for a, b, u in merged:
+        n = np.linalg.norm(b - a)
+        if n >= CLIP_WIDTH - 0.5:
+            out.append(((a + b) / 2, u, max(0.0, (n - CLIP_WIDTH) / 2)))
+    return out
+
+
 @functools.lru_cache(maxsize=4096)
 def joints(part: str) -> tuple:
     """Joints of a part in its local frame: ((kind, origin (3,), frame (3,3)), ...).
-    Kinds: ball, socket (joint-8 system), hinge_base, hinge_top (3937 / 6134)."""
+    See joints_full for the kinds and for how far a clip can slide on a bar."""
+    return tuple((k, o, f) for k, o, f, _ in joints_full(part))
+
+
+@functools.lru_cache(maxsize=4096)
+def joints_full(part: str) -> tuple:
+    """Joints of a part in its local frame: ((kind, origin (3,), frame (3,3), slide), ...).
+    Kinds: ball / socket (joint-8), towball / towball_socket, large_ball / large_socket
+    (2 x 2 brick ball system), hinge_base / hinge_top (3937 / 6134), clip / bar,
+    swivel_base / swivel_top (hinge plates 2429 / 2430), click_hinge_1 / click_hinge_2
+    (locking hinges), turntable_base / turntable_top (3403 / 3404), turntable2_base /
+    turntable2_top (3680 / 3679) and flat_turntable / snapstud (61485 + round plates)."""
     pid = ldraw.normalize_part_id(part)
+    raw, out = [], []
     if pid in _JOINT_OVERRIDES:
-        return tuple((k, np.array(o, float), np.array(f, float)) for k, o, f in _JOINT_OVERRIDES[pid])
-    return _joint_refs(pid + ".dat")
+        for k, o, f in _JOINT_OVERRIDES[pid]:
+            o, f = np.array(o, float), np.array(f, float)
+            raw.append((k, o, f if f.shape == (3, 3) else _axis_frame(f)))
+    else:
+        raw = list(_joint_refs(pid + ".dat"))
+    ends = []
+    for k, o, f in raw:
+        if k == "handle_end":
+            ends.append((o, f[:, 0]))
+            continue
+        if k in OPPOSED_KINDS:
+            # one joint per pivot (a dual finger hinge is drawn as two mirrored halves)
+            if any(k2 == k and np.linalg.norm(o2 - o) < 0.5 for k2, o2, _, _ in out):
+                continue
+            f = _fit_frame(pid, o, f[:, 0])
+        out.append((k, o, f, 0.0))
+    for o, a, s in _pair_handles(ends) + (_plain_bars(pid) if pid not in _JOINT_OVERRIDES else []):
+        out.append(("bar", o, _fit_frame(pid, o, a), s))
+    return tuple(out)
 
 
 @functools.lru_cache(maxsize=4096)

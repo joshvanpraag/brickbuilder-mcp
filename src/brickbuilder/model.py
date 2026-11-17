@@ -158,8 +158,12 @@ class Geometry:
         return [(self.matrix @ p + self.pos, self.matrix @ d) for p, d in geometry.receivers(self.part)]
 
     def joints(self) -> list[tuple[str, np.ndarray, np.ndarray]]:
-        """(kind, world centre, world frame) for each ball / socket / hinge."""
-        return [(k, self.matrix @ o + self.pos, self.matrix @ f) for k, o, f in geometry.joints(self.part)]
+        """(kind, world centre, world frame) for each joint (see geometry.joints)."""
+        return [(k, c, f) for k, c, f, _ in self.joints_full()]
+
+    def joints_full(self) -> list[tuple[str, np.ndarray, np.ndarray, float]]:
+        """(kind, world centre, world frame, slide) for each joint (see geometry.joints_full)."""
+        return [(k, self.matrix @ o + self.pos, self.matrix @ f, s) for k, o, f, s in geometry.joints_full(self.part)]
 
     @property
     def axis_aligned(self) -> bool:
@@ -363,35 +367,64 @@ class Model:
         return self.add(pid, color, 0, 0, 0, r, "up", [float(v) for v in pos], matrix=m)
 
     def attach_joint(self, part: str, color: int | str, to_id: int, to_joint: int = 0, joint: int = 0,
-                     bend: float = 0, swing: float = 0, twist: float = 0) -> Placement:
+                     bend: float = 0, swing: float = 0, twist: float = 0, slide: float = 0,
+                     flip: bool = False) -> Placement:
         """Connect the new part's joint `joint` to joint `to_joint` of placed part `to_id`:
-        a ball into a socket (or the other way round), or a hinge top onto a hinge base.
-        Angles are in degrees, in the target joint's frame. Ball joint: `bend` and `swing`
-        tilt the new part away from straight (about the joint's X and Y axes, at most 45
-        degrees combined) and `twist` turns it about the joint's axis. Hinge: `bend` is the
-        hinge angle (any value)."""
+        a ball into a socket (joint-8, towball or large 2 x 2 ball, each only with its own
+        kind), a clip onto a bar, or the two halves of a hinge, hinge plate or turntable.
+        Angles are in degrees, in the target joint's frame.
+        Ball joints: `bend` and `swing` tilt the new part away from straight (about the
+        joint's X and Y axes; 45 degrees combined at most, 60 for towballs) and `twist` turns
+        it about the joint's axis.
+        Every other joint turns about its axis (frame X) by `bend`, any value: hinge angle,
+        clip angle round the bar, turntable angle.
+        Clip / bar: `slide` moves the clip along the bar (LDU, along the bar's axis, within
+        the bar's free length; a 3L bar allows -26..26) and `flip` turns the new part end for
+        end on the bar."""
         if to_id not in self.parts:
             raise BuildError(f"No part #{to_id}")
-        tj = self._geom[to_id].joints()
+        tj = self._geom[to_id].joints_full()
         if not 0 <= to_joint < len(tj):
             raise BuildError(f"#{to_id} {self.parts[to_id].part} has {len(tj)} joints (0..{len(tj) - 1}), not {to_joint}")
         pid, _, _ = catalog.lookup(part)
-        nj = geometry.joints(pid)
+        nj = geometry.joints_full(pid)
         if not 0 <= joint < len(nj):
             raise BuildError(f"{pid} has {len(nj)} joints (0..{len(nj) - 1}), not {joint}")
-        tkind, centre, frame = tj[to_joint]
-        nkind, origin, nframe = nj[joint]
+        tkind, centre, frame, tslide = tj[to_joint]
+        nkind, origin, nframe, nslide = nj[joint]
         if (tkind, nkind) not in geometry.JOINT_PAIRS:
             raise BuildError(f"a {nkind} does not connect to a {tkind}")
-        if tkind in ("ball", "socket"):
+        if tkind not in geometry.BALL_KINDS and (swing or twist):
+            raise BuildError(f"a {tkind} joint only turns about its axis: use bend, not swing/twist")
+        if slide and tkind not in geometry.SLIDE_KINDS:
+            raise BuildError("slide only applies to a clip on a bar")
+        if flip and tkind not in geometry.SLIDE_KINDS:
+            raise BuildError("flip only applies to a clip on a bar")
+        room = max(tslide, nslide)
+        if abs(slide) > room + 1e-6:
+            raise BuildError(f"the clip can slide {room:g} LDU each way on this bar, not {slide:g}")
+        if tkind in geometry.BALL_KINDS:
             user = _rot("x", bend) @ _rot("y", swing) @ _rot("z", twist)
             tilt = math.degrees(math.acos(max(-1.0, min(1.0, user[2, 2]))))
-            if tilt > 45.5:
-                raise BuildError(f"a joint-8 ball joint tilts about 45 degrees at most; bend/swing give {tilt:.0f}")
+            limit = geometry.BALL_TILT[tkind]
+            if tilt > limit + 0.5:
+                raise BuildError(f"a {tkind.replace('_socket', '')} joint tilts about {limit} degrees at most; "
+                                 f"bend/swing give {tilt:.0f}")
             m = frame @ user @ np.diag([-1.0, 1.0, -1.0]) @ nframe.T  # stems opposite, tops the same way up
+        elif tkind in geometry.OPPOSED_KINDS:
+            # parts on opposite sides of the axis, the same way up (turned 180 about frame Y)
+            turn = np.diag([-1.0, 1.0, -1.0])
+            if flip:
+                turn = turn @ np.diag([-1.0, -1.0, 1.0])  # end for end: also turned about Z
+            m = frame @ _rot("x", bend) @ turn @ nframe.T
         else:
             m = frame @ _rot("x", bend) @ nframe.T
         pos = centre - m @ origin
+        if slide:
+            if tkind == "bar":   # the clip moves along the placed bar
+                pos = pos + slide * frame[:, 0]
+            else:                # the new bar moves through the placed clip
+                pos = pos - slide * (m @ nframe[:, 0])
         return self.add(pid, color, 0, 0, 0, 0, "up", [float(v) for v in pos], matrix=m, ignore={to_id})
 
     def remove(self, ids: list[int]) -> list[int]:
@@ -451,31 +484,41 @@ class Model:
         return adj
 
     @staticmethod
-    def _joints_mate(k1, c1, f1, k2, c2, f2) -> bool:
-        if (k1, k2) not in geometry.JOINT_PAIRS or np.linalg.norm(c1 - c2) > 1.0:
+    def _joints_mate(j1, j2) -> bool:
+        """Do two world joints (kind, centre, frame, slide) connect? Balls: centres together.
+        Rotation joints: centres together and axes parallel. Clip on bar: axes parallel and
+        the clip's centre on the bar's axis, within the bar's free length."""
+        k1, c1, f1, s1 = j1
+        k2, c2, f2, s2 = j2
+        if (k1, k2) not in geometry.JOINT_PAIRS:
             return False
-        return not k1.startswith("hinge") or abs(float(np.dot(f1[:, 0], f2[:, 0]))) >= 0.99
+        if k1 not in geometry.BALL_KINDS and abs(float(np.dot(f1[:, 0], f2[:, 0]))) < 0.99:
+            return False
+        d = c2 - c1
+        if k1 in geometry.SLIDE_KINDS:
+            along = float(np.dot(d, f1[:, 0]))
+            return np.linalg.norm(d - along * f1[:, 0]) <= 1.0 and abs(along) <= max(s1, s2) + 1.0
+        return np.linalg.norm(d) <= 1.0
 
     def _joint_links(self) -> list[tuple[int, int]]:
-        """Pairs of parts joined by a ball joint or a hinge (centres together; hinge axes
-        parallel)."""
-        js = [(i, k, c, f) for i, g in self._geom.items() for k, c, f in g.joints()]
+        """Pairs of parts joined by a joint (see _joints_mate)."""
+        js = [(i, jt) for i, g in self._geom.items() for jt in g.joints_full()]
         links = []
         for a in range(len(js)):
-            i, k1, c1, f1 = js[a]
+            i, j1 = js[a]
             for b in range(a + 1, len(js)):
-                j, k2, c2, f2 = js[b]
-                if i != j and self._joints_mate(k1, c1, f1, k2, c2, f2):
+                j, j2 = js[b]
+                if i != j and self._joints_mate(j1, j2):
                     links.append((i, j))
         return links
 
     def joint_usage(self, pid: int) -> list[int | None]:
         """For each joint of part pid: the id of the part joined to it, or None."""
         out = []
-        for k, c, f in self._geom[pid].joints():
+        for jt in self._geom[pid].joints_full():
             hit = None
             for j, g in self._geom.items():
-                if j != pid and any(self._joints_mate(k, c, f, k2, c2, f2) for k2, c2, f2 in g.joints()):
+                if j != pid and any(self._joints_mate(jt, j2) for j2 in g.joints_full()):
                     hit = j
             out.append(hit)
         return out
