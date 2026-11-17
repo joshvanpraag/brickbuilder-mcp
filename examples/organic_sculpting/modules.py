@@ -108,3 +108,46 @@ def mount_on_stud(main: Model, module: Model, mod_part: int, mod_receiver: int, 
         main.remove(list(placed.values()))
         raise BuildError(f"module part {p.part}: {e}") from None
     return placed
+
+
+def ball_pose(main: Model, module: Model, mod_part: int, target: int, bend: float, swing: float,
+              twist: float):
+    """The rigid transform (R, t) mount() would give `module` on a ball joint at these
+    angles, without placing anything; None past the joint's 45 degree limit."""
+    tk, tc, tf = main.geometry(target).joints()[0]
+    mk, mc, mf = module.geometry(mod_part).joints()[0]
+    user = _rot("x", bend) @ _rot("y", swing) @ _rot("z", twist)
+    if math.degrees(math.acos(max(-1.0, min(1.0, user[2, 2])))) > 45.5:
+        return None
+    R = tf @ user @ FLIP @ mf.T
+    return R, tc - R @ mc
+
+
+def place_best(main: Model, module: Model, mod_part: int, target: int, score, step: int = 5,
+               twists=range(0, 360, 15), tries: int = 60):
+    """Pose search for a ball-jointed module: rank every (bend, swing, twist) by
+    score(R, t) (lower is better, e.g. how far the module's hand is from where you want
+    it), then mount the best pose that doesn't collide.
+    Returns ({module id: main id}, (bend, swing, twist), score)."""
+    ranked = []
+    for bend in range(-45, 46, step):
+        for swing in range(-45, 46, step):
+            if math.hypot(bend, swing) > 45:
+                continue
+            for twist in twists:
+                p = ball_pose(main, module, mod_part, target, bend, swing, twist)
+                if p is not None:
+                    ranked.append((score(*p), bend, swing, twist))
+    ranked.sort()
+    for sc, b, s, t in ranked[:tries]:
+        try:
+            return mount(main, module, mod_part, 0, target, 0, bend=b, swing=s, twist=t), (b, s, t), sc
+        except BuildError:
+            continue
+    raise BuildError("no pose fits")
+
+
+def angle_between(u, v) -> float:
+    """Angle in degrees between two vectors."""
+    c = float(np.dot(u, v) / np.linalg.norm(u) / np.linalg.norm(v))
+    return math.degrees(math.acos(max(-1.0, min(1.0, c))))
