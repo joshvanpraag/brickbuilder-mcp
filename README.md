@@ -25,6 +25,11 @@ staggered courses, and a connectivity check that flags anything floating before 
 
 ## Setup
 
+> **New computer, or don't code?** Follow [RESTORE.md](RESTORE.md): a step-by-step guide
+> to getting this tool and everything built with it back from GitHub.
+> For curvy, character-style builds, see [docs/organic_sculpting.md](docs/organic_sculpting.md)
+> and the worked example in [examples/organic_sculpting](examples/organic_sculpting/).
+
 Needs Python 3.11+, [uv](https://docs.astral.sh/uv/), `curl` and `unzip`.
 
 ```bash
