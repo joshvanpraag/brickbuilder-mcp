@@ -116,6 +116,7 @@ builds with you.
 | `export_parts_list` | Parts list as a Rebrickable import CSV plus a readable list, to buy the bricks |
 | `export_bricklink` | BrickLink wanted list (XML) to upload and buy the whole model |
 | `export_instructions` | Building instructions: a phone PDF and a print-and-fold booklet PDF |
+| `export_build_pack` | All of it in one folder: model, BrickLink and Rebrickable lists, both PDFs, a how-to-buy sheet |
 | `render_model` | Preview sheet with real part shapes (or `detail="simple"`), optionally beside the reference picture |
 | `export_ldr` | LDraw file, one build step per level; `legacy_ids` for older part numbers |
 
@@ -292,6 +293,17 @@ indexes which colours each part really came in, in how many sets, and in which y
 Printed LDraw parts are looked up as their plain base part.
 
 ### Buying the parts and building instructions
+
+- **`export_build_pack`:** the simple way. Writes everything for a finished model into one
+  folder: the model (`.ldr`), the BrickLink wanted list, the Rebrickable parts list (CSV),
+  both instruction PDFs, and `HOW_TO_BUY.md` with the click-by-click steps for BrickLink
+  (upload under **Upload BrickLink XML format**, then **Buy All**) and Rebrickable
+  (**My LEGO > Part Lists > Import Parts**, then compare with your own sets or stores).
+  It also writes a **Rebrickable MOC kit** for publishing the model as a MOC: renders in
+  `rebrickable_moc/` (5:4, the first is the main picture) and `REBRICKABLE_MOC.md`, which
+  walks through Rebrickable's five submission steps with the name, theme, description
+  (your `story` plus the parts count, size in inches and colours), the pictures, the
+  instructions PDF and the inventory CSV to use at each step.
 
 - **`export_bricklink`:** writes a BrickLink wanted list. On bricklink.com go to
   **Want > Upload**, upload the file into a new wanted list, then **Buy All** to find

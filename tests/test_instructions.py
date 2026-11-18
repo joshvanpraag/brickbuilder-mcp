@@ -73,8 +73,26 @@ def test_pdfs_are_written():
         assert info["sheets"] == -(-info["pages"] // 4)
 
 
+def test_build_pack():
+    from brickbuilder import buildpack
+    m = small_model()
+    with tempfile.TemporaryDirectory() as d:
+        info = buildpack.export(m, Path(d), "Test Model", max_parts=4)
+        names = sorted(Path(f).name for f in info["files"].values())
+        assert names == sorted(["t.ldr", "t_bricklink_wanted_list.xml", "t_rebrickable_parts.csv",
+                                "t_instructions_phone.pdf", "t_instructions_booklet.pdf", "HOW_TO_BUY.md",
+                                "REBRICKABLE_MOC.md"])
+        assert len(list(Path(d, "rebrickable_moc").glob("*.png"))) == len(buildpack.MOC_VIEWS)
+        from PIL import Image
+        with Image.open(Path(d, "rebrickable_moc", "1_main.png")) as main:
+            assert main.width * 4 == main.height * 5             # Rebrickable's 5:4 thumbnail
+        assert all(Path(f).stat().st_size > 20 for f in info["files"].values())
+        assert "Upload BrickLink XML format" in Path(d, "HOW_TO_BUY.md").read_text(encoding="utf-8")
+
+
 if __name__ == "__main__":
     for t in (test_steps_cover_every_part_once_bottom_to_top, test_booklet_places_every_page_once,
-              test_bricklink_wanted_list, test_bricklink_part_numbers, test_pdfs_are_written):
+              test_bricklink_wanted_list, test_bricklink_part_numbers, test_pdfs_are_written,
+              test_build_pack):
         t()
         print("ok", t.__name__)

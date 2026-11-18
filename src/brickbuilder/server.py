@@ -775,6 +775,27 @@ def export_bricklink(path: str | None = None) -> str:
 
 
 @mcp.tool()
+def export_build_pack(out_dir: str, title: str | None = None, max_parts: int = 40, story: str = "",
+                      theme: str = "Modular Buildings") -> str:
+    """Everything to buy and build the model, in one folder: the model (.ldr), a BrickLink
+    wanted list (XML), a Rebrickable parts list (CSV, plus a readable .txt), the
+    instructions as a phone PDF and a print-and-fold booklet PDF, and HOW_TO_BUY.md with the
+    steps for BrickLink and Rebrickable, plus a Rebrickable MOC kit: publishing-quality
+    pictures (rebrickable_moc/) and REBRICKABLE_MOC.md with every field of Rebrickable's
+    "Submit a MOC" form filled in. story: the opening of the MOC description (what the
+    model is, its highlights); the facts (parts, size in inches, colours) are added."""
+    from . import buildpack
+    m = _model()
+    info = buildpack.export(m, Path(out_dir).expanduser(), title, max_parts=max_parts, story=story,
+                            theme=theme)
+    msg = (f"Build pack in {out_dir}: {len(m.parts)} parts, {info['steps']} steps, booklet "
+           f"{info['sheets']} sheets.\n- " + "\n- ".join(Path(f).name for f in info["files"].values()))
+    if info["problems"]:
+        msg += "\nLeft out of the BrickLink list:\n- " + "\n- ".join(info["problems"])
+    return msg
+
+
+@mcp.tool()
 def export_instructions(out_dir: str | None = None, title: str | None = None, max_parts: int = 40) -> str:
     """Write building instructions as two PDFs: one page per step for reading on a phone,
     and a booklet to print on US letter paper both sides (flip on long edge), staple across
