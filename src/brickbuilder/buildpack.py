@@ -230,7 +230,10 @@ Start at bricklink.com > **My Studio** > upload a design (logged in). The form h
 
 ## Step 1 of 3 - Upload Studio file
 
-Upload `{name}.io` from this folder.
+First open `{name}.io` in Studio and do **File > Save** once: Studio adds its own data (every
+part's shape) that the Gallery's 3D view and parts list use. Then upload `{name}.io` from
+this folder. After uploading, check the numbers at the top of the design page: they should
+read **{lines} lots, {parts} items, {ncolours} colours** ({palette}).
 
 ## Step 2 of 3 - Select sharing option
 
@@ -303,9 +306,12 @@ def studio_kit(model, out_dir: Path, title: str, story: str, picture_names: list
     text, _ = describe(model, title, story)
     lines = len({(p.part, p.color) for p in model.parts.values()})
     tags = (tags or [title, "building", "architecture"])[:10]
+    colours = sorted({rebrickable.colour_name(p.color) if rebrickable.available() else str(p.color)
+                      for p in model.parts.values()})
     guide = out / "STUDIO_GALLERY.md"
     guide.write_text(STUDIO_GUIDE.format(
         title=title[:64], name=model.name, steps=steps, statement=text,
+        lines=lines, parts=len(model.parts), ncolours=len(colours), palette=", ".join(colours),
         category=category or "the closest match to buildings or architecture in the list",
         tags="\n".join(f"    {t}" for t in tags),  # one per line: the box takes one tag per Enter
         images=" ".join(f"`{n}`" for n in names),

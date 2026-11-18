@@ -94,6 +94,7 @@ def test_build_pack():
         assert ldr.count("\n1 ") == len(m.parts)
         assert f"same {info['steps']} steps" in Path(d, "STUDIO_GALLERY.md").read_text(encoding="utf-8")
         studio = Path(d, "STUDIO_GALLERY.md").read_text(encoding="utf-8")
+        assert f"**3 lots, {len(m.parts)} items, 3 colours**" in studio   # what the design page should show
         tag_lines = studio.split("and repeat:")[1].split("---")[0].strip().splitlines()
         assert tag_lines and all("`" not in t and "," not in t for t in tag_lines)   # one plain tag per line
         studio_pics = sorted(Path(d, "studio_pictures").iterdir())
@@ -113,12 +114,28 @@ def test_studio_io():
     with tempfile.TemporaryDirectory() as d:
         p = studio.write_io(m, Path(d, "t.io"), steps=steps)
         with zipfile.ZipFile(p) as z:
-            assert sorted(z.namelist()) == sorted(["model.ldr", "thumbnail.png", "errorPartList.err", ".info"])
+            assert sorted(z.namelist()) == sorted(["model.ldr", "model2.ldr", "thumbnail.png",
+                                                   "errorPartList.err", ".info"])
+            # model2.ldr, read by the BrickLink website, has BrickLink colour ids: tan 19 -> 2,
+            # reddish brown 70 -> 88, black 0 -> 11 (LDraw codes there read as other colours)
+            m2 = z.read("model2.ldr").decode("utf-8-sig")
+            colours2 = {ln.split(" ")[1] for ln in m2.splitlines() if ln.startswith("1 ")}
+            assert colours2 == {"2", "88", "11"}
             info = json.loads(z.read(".info"))
             assert info["total_parts"] == len(m.parts)
             text = z.read("model.ldr").decode("utf-8-sig")
         assert text.startswith("0 FILE t.io") and text.rstrip().endswith("0 NOFILE")
         assert text.count("\n1 ") == len(m.parts) and text.count("0 STEP") == len(steps)
+        # ... and BrickLink part numbers (the website drops LDraw names like 3069b it can't match)
+        m3 = Model("t3")
+        m3.add("3036", "tan", 0, 0, 0, 0)
+        m3.add("3069b", "black", 0, 1, 0, 0)
+        with zipfile.ZipFile(studio.write_io(m3, Path(d, "t3.io"))) as z:
+            names2 = {ln.split(" ")[-1] for ln in z.read("model2.ldr").decode("utf-8-sig").splitlines()
+                      if ln.startswith("1 ")}
+            names1 = {ln.split(" ")[-1] for ln in z.read("model.ldr").decode("utf-8-sig").splitlines()
+                      if ln.startswith("1 ")}
+        assert names2 == {"3036.dat", "3069.dat"} and "3069b.dat" in names1
 
 
 if __name__ == "__main__":

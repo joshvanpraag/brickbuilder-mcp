@@ -6,8 +6,13 @@ A .io file is a zip. Studio's own sample files show the layout:
     thumbnail.png      a picture of the model
     errorPartList.err  "[]" (no part errors)
     .info              {"version": ..., "total_parts": N, "parts_db_version": ...}
-Studio also keeps model2.ldr (every part's shape packed in, BrickLink colours), and newer
-files carry instruction layouts (model.ins); Studio writes those itself when it saves. Its
+    model2.ldr         the same model with BrickLink colour ids and part numbers. The
+                       BrickLink website reads this copy for a Gallery design's parts list:
+                       without it, LDraw codes were read as BrickLink ids (Tan 19 became
+                       Trans-Yellow), and LDraw names with a letter (3069b) were dropped.
+                       Studio's own model2.ldr also packs in every part's shape; it writes
+                       that when the file is saved in Studio, so save once there first.
+Newer files also carry instruction layouts (model.ins), which Studio writes itself. Its
 samples include both password-locked and plain zips; this writes a plain one, which Studio
 opens (checked by opening a 1,048-part model with 37 steps in Studio, November 2026).
 """
@@ -22,9 +27,30 @@ INFO_VERSION = "2.25.11_3"      # as written by Studio 2.25 (its Banana sample)
 PARTS_DB_VERSION = 200
 
 
-def model_ldr(model, steps: list[list[int]] | None = None, title: str | None = None) -> str:
-    """model.ldr inside the .io: the model's part lines and steps in Studio's wrapper."""
+def model_ldr(model, steps: list[list[int]] | None = None, title: str | None = None,
+              bricklink_colours: bool = False) -> str:
+    """model.ldr inside the .io: the model's part lines and steps in Studio's wrapper.
+    bricklink_colours: write BrickLink colour ids instead of LDraw codes, as in model2.ldr -
+    the copy the BrickLink website reads for a Gallery design's parts list (with LDraw codes
+    there, Tan 19 reads as BrickLink's Trans-Yellow 19)."""
     body = [ln for ln in model.to_ldr(steps=steps).splitlines() if ln.startswith(("1 ", "0 STEP"))]
+    if bricklink_colours:
+        # BrickLink's colour ids, and BrickLink's part numbers too: the website matches part
+        # names in this copy to its catalogue directly, and dropped the parts whose LDraw
+        # names carry a letter (3069b, 3070b, 3062b...) that BrickLink files without it.
+        from .bricklink import COLOURS, bricklink_part
+        out = []
+        for ln in body:
+            if ln.startswith("1 "):
+                bits = ln.split(" ")
+                code = int(bits[1])
+                if code not in COLOURS:
+                    raise ValueError(f"no BrickLink colour id known for LDraw colour {code}")
+                bits[1] = str(COLOURS[code])
+                bits[-1] = bricklink_part(bits[-1][:-4]) + ".dat"
+                ln = " ".join(bits)
+            out.append(ln)
+        body = out
     lines = [f"0 FILE {model.name}.io", f"0 {title or model.name}", f"0 Name:  {model.name}",
              "0 Author:  ", *body, "0 NOFILE"]
     return "﻿" + "\r\n".join(lines) + "\r\n"
@@ -42,6 +68,7 @@ def io_bytes(model, steps: list[list[int]] | None = None, title: str | None = No
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
         z.writestr("model.ldr", model_ldr(model, steps, title))
+        z.writestr("model2.ldr", model_ldr(model, steps, title, bricklink_colours=True))
         z.writestr("thumbnail.png", png.getvalue())
         z.writestr("errorPartList.err", "[]")
         z.writestr(".info", json.dumps({"version": INFO_VERSION, "total_parts": len(model.parts),
