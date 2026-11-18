@@ -246,9 +246,14 @@ Upload `{name}.io` from this folder.
 |---|---|
 | **Design name** (64 characters max) | {title} |
 | **Category** | {category} |
-| **Tags** (up to 10; press Enter after each) | {tags} |
+| **Tags** (up to 10) | see **Tags** below: one at a time |
 | **Featured images** (up to 10, 4:3, 2 MB max) | the pictures in `studio_pictures/`, in this order (the first is the thumbnail): {images} |
 | **Artistic statement** | copy the text between the two lines below |
+
+**Tags**: the tags box only makes a tag when you press Enter, so pasting a whole list does
+not work. Copy one line, paste it into the box, press **Enter**, and repeat:
+
+{tags}
 
 ---
 
@@ -302,7 +307,7 @@ def studio_kit(model, out_dir: Path, title: str, story: str, picture_names: list
     guide.write_text(STUDIO_GUIDE.format(
         title=title[:64], name=model.name, steps=steps, statement=text,
         category=category or "the closest match to buildings or architecture in the list",
-        tags=", ".join(tags),                       # plain, so it pastes straight into the form
+        tags="\n".join(f"    {t}" for t in tags),  # one per line: the box takes one tag per Enter
         images=" ".join(f"`{n}`" for n in names),
         extra=STUDIO_EXTRA.format(steps=steps, parts=len(model.parts), lines=lines)), encoding="utf-8")
     return str(guide)
