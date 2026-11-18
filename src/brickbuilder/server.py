@@ -755,6 +755,42 @@ def export_parts_list(path: str | None = None) -> str:
 
 
 @mcp.tool()
+def export_bricklink(path: str | None = None) -> str:
+    """Write a BrickLink wanted list (XML) for the model's parts. To buy them: on
+    bricklink.com go to Want > Upload, paste or upload this file into a new wanted list,
+    then use "Buy All" to find sellers that cover the whole list."""
+    from . import bricklink
+    m = _model()
+    out = Path(path).expanduser() if path else EXPORTS_DIR / f"{safe_name(m.name)}_bricklink.xml"
+    if out.suffix.lower() != ".xml":
+        raise BuildError("path must end in .xml")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    xml, problems = bricklink.wanted_list(m)
+    out.write_text(xml)
+    lines = xml.count("<ITEM>")
+    msg = f"Wrote {out}: {len(m.parts)} parts in {lines} lines. Upload it on bricklink.com: Want > Upload."
+    if problems:
+        msg += "\nLeft out (no BrickLink colour id known):\n- " + "\n- ".join(problems)
+    return msg
+
+
+@mcp.tool()
+def export_instructions(out_dir: str | None = None, title: str | None = None, max_parts: int = 40) -> str:
+    """Write building instructions as two PDFs: one page per step for reading on a phone,
+    and a booklet to print on US letter paper both sides (flip on long edge), staple across
+    the middle and fold in half (each half sheet is one page; the top half of the outside
+    sheet is the cover). Steps go bottom to top; a step has at most max_parts new parts."""
+    from . import instructions
+    m = _model()
+    out = Path(out_dir).expanduser() if out_dir else EXPORTS_DIR / f"{safe_name(m.name)}_instructions"
+    info = instructions.export(m, out, title or m.name.replace("_", " ").title(),
+                               f"{len(m.parts)} parts", max_parts=max_parts)
+    return (f"{info['steps']} steps, {info['pages']} pages.\nPhone: {info['phone']}\n"
+            f"Booklet: {info['booklet']} ({info['sheets']} sheets of letter paper: print both sides, "
+            "flip on long edge; stack in order, staple across the middle, fold in half)")
+
+
+@mcp.tool()
 def check_strength(limit: int = 15) -> str:
     """Where would the built model break? Finds every single connection that, if it broke,
     would let a section fall off, and ranks them by risk: the weight of that section

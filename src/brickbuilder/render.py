@@ -284,10 +284,15 @@ def _raster(px: np.ndarray, py: np.ndarray, pz: np.ndarray, W: int, H: int, zbuf
             write(pix[front], t2[front])
 
 
-def render_real_view(scene, az: float, el: float, width: int, height: int, ss: int = 2) -> Image.Image:
+def render_real_view(scene, az: float, el: float, width: int, height: int, ss: int = 2,
+                     ghost=None, frame=None) -> Image.Image:
     """Depth-buffered render of real part shapes: every pixel shows the nearest surface, so
     parts never appear to pass through each other. Part outlines where parts meet, plus the
-    parts' own LDraw edge lines where they are visible."""
+    parts' own LDraw edge lines where they are visible.
+
+    ghost: part ids drawn faded (building instructions: what was built in earlier steps).
+    frame: 3D points (render space) to fit the picture to instead of the scene itself, so a
+    series of pictures keeps the same scale and position."""
     from . import geometry
     P, PC, L, LC, PI = scene
     W, H = width * ss, height * ss
@@ -298,7 +303,10 @@ def render_real_view(scene, az: float, el: float, width: int, height: int, ss: i
     cols = np.concatenate([PC, PC])
     pids = np.concatenate([PI, PI])
     sx, sy, sd = tris @ r, tris @ u, tris @ v
-    allx, ally = np.concatenate([sx.ravel(), (L @ r).ravel()]), np.concatenate([sy.ravel(), (L @ u).ravel()])
+    if frame is not None:
+        allx, ally = np.asarray(frame) @ r, np.asarray(frame) @ u
+    else:
+        allx, ally = np.concatenate([sx.ravel(), (L @ r).ravel()]), np.concatenate([sy.ravel(), (L @ u).ravel()])
     margin = 0.06
     span = max(allx.max() - allx.min(), 1e-6), max(ally.max() - ally.min(), 1e-6)
     scale = min(W * (1 - 2 * margin) / span[0], H * (1 - 2 * margin) / span[1])
@@ -315,6 +323,9 @@ def render_real_view(scene, az: float, el: float, width: int, height: int, ss: i
     codes, inverse = np.unique(cols, return_inverse=True)
     pal = np.array([table[int(c)].rgb if int(c) in table else (200, 200, 200) for c in codes], float)
     tri_rgb = np.clip(pal[inverse] * shade[:, None], 0, 255)
+    if ghost:
+        faded = np.isin(pids, np.fromiter(ghost, dtype=np.int64))
+        tri_rgb[faded] = tri_rgb[faded] * 0.35 + np.array([238, 240, 243]) * 0.65
 
     zbuf = np.full(W * H, -np.inf)
     _raster(px, py, sd, W, H, zbuf)

@@ -102,6 +102,7 @@ To check wheels too, run `uv run python examples/vehicles/wheels_demo.py wheels.
   uv run python tests/test_round_receivers.py
   uv run python tests/test_inserts.py
   uv run python tests/test_turn.py
+  uv run python tests/test_instructions.py
   ```
   Then show Claude the output.
 

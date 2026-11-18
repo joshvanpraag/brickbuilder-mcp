@@ -114,6 +114,8 @@ builds with you.
 | `check_strength` | Where the model would break: sections hanging on one weak link, ranked by weight, leverage and link strength |
 | `check_colors` | Parts used in a colour LEGO never made for them, with the closest real colours |
 | `export_parts_list` | Parts list as a Rebrickable import CSV plus a readable list, to buy the bricks |
+| `export_bricklink` | BrickLink wanted list (XML) to upload and buy the whole model |
+| `export_instructions` | Building instructions: a phone PDF and a print-and-fold booklet PDF |
 | `render_model` | Preview sheet with real part shapes (or `detail="simple"`), optionally beside the reference picture |
 | `export_ldr` | LDraw file, one build step per level; `legacy_ids` for older part numbers |
 
@@ -288,6 +290,26 @@ indexes which colours each part really came in, in how many sets, and in which y
   bricks, or see which of your own sets already contain them.
 
 Printed LDraw parts are looked up as their plain base part.
+
+### Buying the parts and building instructions
+
+- **`export_bricklink`:** writes a BrickLink wanted list. On bricklink.com go to
+  **Want > Upload**, upload the file into a new wanted list, then **Buy All** to find
+  sellers that cover the whole list. Part numbers that BrickLink writes differently from
+  Rebrickable (for example 3040b is 3040 on BrickLink) are translated, and colours are
+  mapped to BrickLink's colour numbers.
+- **`export_instructions`:** writes two PDFs of building instructions, one step per page,
+  bottom to top. Each step shows the model so far with the step's new parts in full colour
+  (earlier work faded) and a box of the parts for that step. A level with many parts is
+  split round the building into stretches (at most `max_parts` new parts, 40 by default).
+  The parts list shows BrickLink's part numbers, so it matches the wanted list.
+  - **Phone PDF:** the pages in order: cover, parts list, steps, back cover.
+  - **Booklet PDF:** to print and fold. Print it on US letter paper, both sides, with the
+    printer's normal "flip on long edge" setting. Keep the sheets in order, staple across
+    the middle and fold in half. Each half sheet is one page and the top half of the
+    outside sheet is the cover. Open it like a calendar: read the top page, then the bottom
+    page, then flip on. The PDF looks scrambled on screen; that is how the pages land in the
+    right order once folded.
 
 ### Strength check
 
