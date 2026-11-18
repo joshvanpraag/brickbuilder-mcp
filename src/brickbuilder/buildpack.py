@@ -244,7 +244,7 @@ Upload `{name}.io` from this folder.
 
 | Field | What to put |
 |---|---|
-| **Design name** (64 characters max) | `{title}` |
+| **Design name** (64 characters max) | {title} |
 | **Category** | {category} |
 | **Tags** (up to 10; press Enter after each) | {tags} |
 | **Featured images** (up to 10, 4:3, 2 MB max) | the pictures in `studio_pictures/`, in this order (the first is the thumbnail): {images} |
@@ -302,7 +302,7 @@ def studio_kit(model, out_dir: Path, title: str, story: str, picture_names: list
     guide.write_text(STUDIO_GUIDE.format(
         title=title[:64], name=model.name, steps=steps, statement=text,
         category=category or "the closest match to buildings or architecture in the list",
-        tags=", ".join(f"`{t}`" for t in tags),
+        tags=", ".join(tags),                       # plain, so it pastes straight into the form
         images=" ".join(f"`{n}`" for n in names),
         extra=STUDIO_EXTRA.format(steps=steps, parts=len(model.parts), lines=lines)), encoding="utf-8")
     return str(guide)

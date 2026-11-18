@@ -93,6 +93,9 @@ def test_build_pack():
         assert ldr.count("0 STEP") == info["steps"]
         assert ldr.count("\n1 ") == len(m.parts)
         assert f"same {info['steps']} steps" in Path(d, "STUDIO_GALLERY.md").read_text(encoding="utf-8")
+        studio = Path(d, "STUDIO_GALLERY.md").read_text(encoding="utf-8")
+        tag_row = next(ln for ln in studio.splitlines() if ln.startswith("| **Tags**"))
+        assert "`" not in tag_row                                  # pastes into the form as plain text
         studio_pics = sorted(Path(d, "studio_pictures").iterdir())
         assert len(studio_pics) == len(buildpack.MOC_VIEWS)
         for pic in studio_pics:                                   # the Gallery's 4:3 and 2 MB limits
