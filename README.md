@@ -304,7 +304,10 @@ Printed LDraw parts are looked up as their plain base part.
   picture) and two guides, each with the description ready to paste (your `story` plus the
   parts count, size in inches and colours):
   - `STUDIO_GALLERY.md`: the current way to share a build. Open the `.io` (written directly,
-    no Studio needed to make it) in BrickLink Studio, upload it from **My Studio**, add the description and pictures,
+    no Studio needed to make it) in BrickLink Studio and save it once, upload it from
+    **My Studio**, then check the lots, items and colours the guide lists against the design
+    page (inside the `.io`, the copy the website reads uses BrickLink's part numbers and colour
+    ids; with LDraw ones it showed wrong colours and dropped parts). Add the description and pictures,
     and choose Full Access (instructions and parts list; BrickLink reviews these, showing
     pictures only until then) or Display. The `.ldr` carries the same steps as the PDFs, so
     the Gallery's instructions match the booklet. The PDFs are shared alongside the link.
