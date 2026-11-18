@@ -118,7 +118,7 @@ def test_studio_io():
                                                    "errorPartList.err", ".info"])
             # model2.ldr, read by the BrickLink website, has BrickLink colour ids: tan 19 -> 2,
             # reddish brown 70 -> 88, black 0 -> 11 (LDraw codes there read as other colours)
-            m2 = z.read("model2.ldr").decode("utf-8-sig")
+            m2 = z.read("model2.ldr").decode("utf-8-sig").split("0 NOFILE")[0]    # the model itself
             colours2 = {ln.split(" ")[1] for ln in m2.splitlines() if ln.startswith("1 ")}
             assert colours2 == {"2", "88", "11"}
             info = json.loads(z.read(".info"))
@@ -131,11 +131,21 @@ def test_studio_io():
         m3.add("3036", "tan", 0, 0, 0, 0)
         m3.add("3069b", "black", 0, 1, 0, 0)
         with zipfile.ZipFile(studio.write_io(m3, Path(d, "t3.io"))) as z:
-            names2 = {ln.split(" ")[-1] for ln in z.read("model2.ldr").decode("utf-8-sig").splitlines()
-                      if ln.startswith("1 ")}
+            names2 = {ln.split(" ")[-1] for ln in z.read("model2.ldr").decode("utf-8-sig")
+                      .split("0 NOFILE")[0].splitlines() if ln.startswith("1 ")}
             names1 = {ln.split(" ")[-1] for ln in z.read("model.ldr").decode("utf-8-sig").splitlines()
                       if ln.startswith("1 ")}
         assert names2 == {"3036.dat", "3069.dat"} and "3069b.dat" in names1
+        # ... and every part's shape, down to the primitives, for the Gallery's step viewer
+        with zipfile.ZipFile(Path(d, "t3.io")) as z:
+            m2 = z.read("model2.ldr").decode("utf-8-sig")
+        files = [ln[7:] for ln in m2.splitlines() if ln.startswith("0 FILE ")]
+        assert files[0] == "t3.io" and {"3036.dat", "3069.dat", "stud.dat"} <= set(files)
+        assert len(files) == len(set(files)) == m2.count("0 NOFILE")
+        refs = {ln.split(" ")[-1] for ln in m2.splitlines() if ln.startswith("1 ")}
+        assert refs <= set(files)                              # nothing left undefined
+        assert not any(ln.split(" ")[1] in ("16", "24") for ln in m2.splitlines()
+                       if ln[:2] in ("1 ", "2 ", "3 ", "4 ", "5 "))
 
 
 if __name__ == "__main__":

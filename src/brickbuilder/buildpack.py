@@ -230,10 +230,11 @@ Start at bricklink.com > **My Studio** > upload a design (logged in). The form h
 
 ## Step 1 of 3 - Upload Studio file
 
-First open `{name}.io` in Studio and do **File > Save** once: Studio adds its own data (every
-part's shape) that the Gallery's 3D view and parts list use. Then upload `{name}.io` from
-this folder. After uploading, check the numbers at the top of the design page: they should
-read **{lines} lots, {parts} items, {ncolours} colours** ({palette}).
+Upload `{name}.io` from this folder as it is (no need to open it in Studio first: it already
+carries every part's shape, which the Gallery's step viewer needs). After uploading, check the
+numbers at the top of the design page: they should read
+**{lines} lots, {parts} items, {ncolours} colours** ({palette}), and **View Instructions**
+should show the model step by step.
 
 ## Step 2 of 3 - Select sharing option
 
