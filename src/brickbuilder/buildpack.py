@@ -1,14 +1,18 @@
 """A model's build pack: everything needed to buy the parts and build it, in one folder.
 
     <name>.ldr                          the model (opens in Studio, Mecabricks, LDraw tools)
+    <name>.io                           the same model as a BrickLink Studio file
     <name>_bricklink_wanted_list.xml    upload on BrickLink to buy the parts
     <name>_rebrickable_parts.csv        import on Rebrickable (compare with your own sets,
                                         other stores); a readable .txt list next to it
     <name>_instructions_phone.pdf       building instructions, one step per page
     <name>_instructions_booklet.pdf     the same, laid out to print, staple and fold
     HOW_TO_BUY.md                       the steps for BrickLink and Rebrickable
-    REBRICKABLE_MOC.md, rebrickable_moc/   pictures and the fields to paste, to publish the
-                                        model as a MOC on Rebrickable
+    showcase_pictures/                  renders for sharing the model (5:4, main picture first)
+    STUDIO_GALLERY.md                   how to put it in the BrickLink Studio Gallery (the
+                                        .ldr carries the same steps as the PDFs)
+    REBRICKABLE_MOC.md                  the fields to paste, to publish it as a MOC on Rebrickable
+                                        (another option; Rebrickable reviews every MOC)
 """
 from __future__ import annotations
 
@@ -26,7 +30,8 @@ HOW_TO = """# {title}: buying the parts and building it
 | `{name}_rebrickable_parts.csv` | Put the parts list on Rebrickable |
 | `{name}_instructions_phone.pdf` | Instructions to read on a phone or screen |
 | `{name}_instructions_booklet.pdf` | Instructions to print, staple and fold |
-| `{name}.ldr` | The model itself (Studio, Mecabricks) |
+| `{name}.io` | The model as a BrickLink Studio file |
+| `{name}.ldr` | The model as an LDraw file (Mecabricks, other tools) |
 
 ## Buy on BrickLink
 
@@ -75,8 +80,12 @@ def export(model, out_dir: Path, title: str | None = None, max_parts: int = 40, 
     title = title or name.replace("_", " ").title()
     files = {}
     ldr = out / f"{name}.ldr"
-    ldr.write_text(model.to_ldr())
+    # the model file carries the instruction steps, so Studio's own instructions match the PDFs
+    steps = instructions.plan_steps(model, max_parts=max_parts)
+    ldr.write_text(model.to_ldr(steps=steps))
     files["ldr"] = str(ldr)
+    from . import studio                     # the same model as a BrickLink Studio file
+    files["io"] = str(studio.write_io(model, out / f"{name}.io", steps=steps, title=title))
     xml, problems = bricklink.wanted_list(model)
     bl = out / f"{name}_bricklink_wanted_list.xml"
     bl.write_text(xml)
@@ -99,9 +108,10 @@ def export(model, out_dir: Path, title: str | None = None, max_parts: int = 40, 
     how.write_text(HOW_TO.format(title=title, name=name, parts=len(model.parts), lines=lines,
                                  sheets=info["sheets"]), encoding="utf-8")
     files["how_to"] = str(how)
-    if moc:                                  # pictures and fields for a Rebrickable MOC page
+    if moc:                                  # pictures, Studio Gallery and Rebrickable guides
         kit = moc_kit(model, out, title, story, theme)
         files["moc_guide"] = kit["guide"]
+        files["studio_guide"] = studio_kit(model, out, title, story, kit["names"], info["steps"])
     return {"files": files, "steps": info["steps"], "pages": info["pages"], "sheets": info["sheets"],
             "problems": problems}
 
@@ -134,7 +144,7 @@ You can save after each step and come back; an admin reviews it before it goes l
 
 ## Step 2 - Images
 
-Upload the pictures in `rebrickable_moc/` (renders of the model, 5:4, the whole model in
+Upload the pictures in `showcase_pictures/` (renders of the model, 5:4, the whole model in
 view, no LEGO logo). Make `1_main.png` the primary image. Up to 12 images are allowed.
 
 {images}
@@ -184,7 +194,7 @@ def moc_kit(model, out_dir: Path, title: str, story: str = "", theme: str = "Mod
             size: int = 1500) -> dict:
     """Pictures and a fill-in guide for submitting the model as a MOC on Rebrickable."""
     out = Path(out_dir)
-    pics = out / "rebrickable_moc"
+    pics = out / "showcase_pictures"
     pics.mkdir(parents=True, exist_ok=True)
     scene = instructions._scene(model)
     sub = instructions._subset(scene, list(model.parts))
@@ -201,5 +211,67 @@ def moc_kit(model, out_dir: Path, title: str, story: str = "", theme: str = "Mod
     guide.write_text(MOC_GUIDE.format(
         title=title, theme=theme, name=model.name, parts=len(model.parts), lines=lines,
         description=text,
-        images="\n".join(f"- `rebrickable_moc/{n}`" for n in names)), encoding="utf-8")
-    return {"guide": str(guide), "images": [str(pics / n) for n in names]}
+        images="\n".join(f"- `showcase_pictures/{n}`" for n in names)), encoding="utf-8")
+    return {"guide": str(guide), "images": [str(pics / n) for n in names], "names": names}
+
+
+# ------------------------------------------------------------------------------- Studio Gallery
+
+STUDIO_GUIDE = """# {title}: sharing it in the BrickLink Studio Gallery
+
+BrickLink's help: https://studiohelp.bricklink.com/hc/en-us/articles/5705165651095 (uploading)
+and https://studiohelp.bricklink.com/hc/en-us/articles/5705436653847 (publishing).
+
+`{name}.ldr` carries the same {steps} steps as the PDF instructions, so the Gallery's
+"View Instructions" matches the booklet.
+
+## 1. Open the model in Studio
+
+1. Install BrickLink Studio (free, Windows or Mac) from bricklink.com and log in with your
+   BrickLink account.
+2. Open `{name}.io` (double-click it, or **File > Open** in Studio). It is already a Studio
+   file, with the same steps as the PDFs. (If it ever won't open, **File > Import** the
+   `{name}.ldr` instead and **File > Save As** `{name}.io`.)
+3. If Studio flags a few parts, they are the same parts under Studio's own numbers: accept
+   its suggestion, then **File > Save**.
+
+## 2. Upload it
+
+1. In Studio, open **My Studio** and click **Upload** (top right). Name it "{title}".
+2. Upload it to **Unpublished** first, so you can add the details before anyone sees it.
+
+## 3. Add the details (on bricklink.com, My Studio > your design)
+
+- **Description:** copy everything between the two lines below.
+
+---
+
+{description}
+
+---
+
+- **Images:** the pictures in `showcase_pictures/`, `1_main.png` first:
+{images}
+
+## 4. Choose who sees what, and publish
+
+- **Full Access:** shown in the Gallery with the instructions and parts list; you choose
+  whether people can download the file. BrickLink reviews Full Access designs by hand; until
+  then the design shows in **Display** mode (pictures only).
+- **Display:** pictures only, no instructions, parts list or download.
+- **Private:** only you.
+
+Publish, then copy the design's Gallery link to share. The Gallery cannot hold our PDFs, so
+send `{name}_instructions_phone.pdf` and `{name}_instructions_booklet.pdf` along with the
+link for anyone who wants the printable booklet.
+"""
+
+
+def studio_kit(model, out_dir: Path, title: str, story: str, picture_names: list[str], steps: int) -> str:
+    """STUDIO_GALLERY.md: the steps to put the model in the BrickLink Studio Gallery."""
+    text, _ = describe(model, title, story)
+    guide = Path(out_dir) / "STUDIO_GALLERY.md"
+    guide.write_text(STUDIO_GUIDE.format(
+        title=title, name=model.name, steps=steps, description=text,
+        images="\n".join(f"  - `showcase_pictures/{n}`" for n in picture_names)), encoding="utf-8")
+    return str(guide)

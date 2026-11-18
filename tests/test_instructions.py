@@ -79,20 +79,42 @@ def test_build_pack():
     with tempfile.TemporaryDirectory() as d:
         info = buildpack.export(m, Path(d), "Test Model", max_parts=4)
         names = sorted(Path(f).name for f in info["files"].values())
-        assert names == sorted(["t.ldr", "t_bricklink_wanted_list.xml", "t_rebrickable_parts.csv",
+        assert names == sorted(["t.ldr", "t.io", "t_bricklink_wanted_list.xml", "t_rebrickable_parts.csv",
                                 "t_instructions_phone.pdf", "t_instructions_booklet.pdf", "HOW_TO_BUY.md",
-                                "REBRICKABLE_MOC.md"])
-        assert len(list(Path(d, "rebrickable_moc").glob("*.png"))) == len(buildpack.MOC_VIEWS)
+                                "REBRICKABLE_MOC.md", "STUDIO_GALLERY.md"])
+        assert len(list(Path(d, "showcase_pictures").glob("*.png"))) == len(buildpack.MOC_VIEWS)
         from PIL import Image
-        with Image.open(Path(d, "rebrickable_moc", "1_main.png")) as main:
+        with Image.open(Path(d, "showcase_pictures", "1_main.png")) as main:
             assert main.width * 4 == main.height * 5             # Rebrickable's 5:4 thumbnail
         assert all(Path(f).stat().st_size > 20 for f in info["files"].values())
         assert "Upload BrickLink XML format" in Path(d, "HOW_TO_BUY.md").read_text(encoding="utf-8")
+        # the model file carries the same steps as the PDFs (Studio shows them in the Gallery)
+        ldr = Path(d, "t.ldr").read_text()
+        assert ldr.count("0 STEP") == info["steps"]
+        assert ldr.count("\n1 ") == len(m.parts)
+        assert f"same {info['steps']} steps" in Path(d, "STUDIO_GALLERY.md").read_text(encoding="utf-8")
+
+
+def test_studio_io():
+    import json
+    import zipfile
+    from brickbuilder import studio
+    m = small_model()
+    steps = instructions.plan_steps(m, max_parts=4, min_parts=1)
+    with tempfile.TemporaryDirectory() as d:
+        p = studio.write_io(m, Path(d, "t.io"), steps=steps)
+        with zipfile.ZipFile(p) as z:
+            assert sorted(z.namelist()) == sorted(["model.ldr", "thumbnail.png", "errorPartList.err", ".info"])
+            info = json.loads(z.read(".info"))
+            assert info["total_parts"] == len(m.parts)
+            text = z.read("model.ldr").decode("utf-8-sig")
+        assert text.startswith("0 FILE t.io") and text.rstrip().endswith("0 NOFILE")
+        assert text.count("\n1 ") == len(m.parts) and text.count("0 STEP") == len(steps)
 
 
 if __name__ == "__main__":
     for t in (test_steps_cover_every_part_once_bottom_to_top, test_booklet_places_every_page_once,
               test_bricklink_wanted_list, test_bricklink_part_numbers, test_pdfs_are_written,
-              test_build_pack):
+              test_build_pack, test_studio_io):
         t()
         print("ok", t.__name__)

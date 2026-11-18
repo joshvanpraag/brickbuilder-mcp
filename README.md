@@ -116,6 +116,7 @@ builds with you.
 | `export_parts_list` | Parts list as a Rebrickable import CSV plus a readable list, to buy the bricks |
 | `export_bricklink` | BrickLink wanted list (XML) to upload and buy the whole model |
 | `export_instructions` | Building instructions: a phone PDF and a print-and-fold booklet PDF |
+| `export_io` | The model as a BrickLink Studio file (.io), with the same steps as the PDFs |
 | `export_build_pack` | All of it in one folder: model, BrickLink and Rebrickable lists, both PDFs, a how-to-buy sheet |
 | `render_model` | Preview sheet with real part shapes (or `detail="simple"`), optionally beside the reference picture |
 | `export_ldr` | LDraw file, one build step per level; `legacy_ids` for older part numbers |
@@ -299,11 +300,17 @@ Printed LDraw parts are looked up as their plain base part.
   both instruction PDFs, and `HOW_TO_BUY.md` with the click-by-click steps for BrickLink
   (upload under **Upload BrickLink XML format**, then **Buy All**) and Rebrickable
   (**My LEGO > Part Lists > Import Parts**, then compare with your own sets or stores).
-  It also writes a **Rebrickable MOC kit** for publishing the model as a MOC: renders in
-  `rebrickable_moc/` (5:4, the first is the main picture) and `REBRICKABLE_MOC.md`, which
-  walks through Rebrickable's five submission steps with the name, theme, description
-  (your `story` plus the parts count, size in inches and colours), the pictures, the
-  instructions PDF and the inventory CSV to use at each step.
+  For sharing the model it writes renders in `showcase_pictures/` (5:4, the first is the main
+  picture) and two guides, each with the description ready to paste (your `story` plus the
+  parts count, size in inches and colours):
+  - `STUDIO_GALLERY.md`: the current way to share a build. Open the `.io` (written directly,
+    no Studio needed to make it) in BrickLink Studio, upload it from **My Studio**, add the description and pictures,
+    and choose Full Access (instructions and parts list; BrickLink reviews these, showing
+    pictures only until then) or Display. The `.ldr` carries the same steps as the PDFs, so
+    the Gallery's instructions match the booklet. The PDFs are shared alongside the link.
+  - `REBRICKABLE_MOC.md`: another option, Rebrickable's five MOC submission steps. Every MOC
+    there is reviewed by an admin before it goes live.
+  Where to share builds may still change.
 
 - **`export_bricklink`:** writes a BrickLink wanted list. On bricklink.com go to
   **Want > Upload**, upload the file into a new wanted list, then **Buy All** to find

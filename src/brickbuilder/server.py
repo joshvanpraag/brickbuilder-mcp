@@ -775,6 +775,22 @@ def export_bricklink(path: str | None = None) -> str:
 
 
 @mcp.tool()
+def export_io(path: str | None = None) -> str:
+    """Write the model as a BrickLink Studio file (.io), with the same build steps as the
+    instruction PDFs. Open it in Studio (double-click) to view, edit, render or upload it to
+    the Studio Gallery."""
+    from . import instructions, studio
+    m = _model()
+    out = Path(path).expanduser() if path else EXPORTS_DIR / f"{safe_name(m.name)}.io"
+    if out.suffix.lower() != ".io":
+        raise BuildError("path must end in .io")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    steps = instructions.plan_steps(m)
+    studio.write_io(m, out, steps=steps)
+    return f"Wrote {out}: {len(m.parts)} parts, {len(steps)} steps. Double-click it to open in BrickLink Studio."
+
+
+@mcp.tool()
 def export_build_pack(out_dir: str, title: str | None = None, max_parts: int = 40, story: str = "",
                       theme: str = "Modular Buildings") -> str:
     """Everything to buy and build the model, in one folder: the model (.ldr), a BrickLink

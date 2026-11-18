@@ -742,7 +742,10 @@ class Model:
         path.write_text(json.dumps(self.to_json(), indent=1))
         return path
 
-    def to_ldr(self, legacy_ids: bool = False) -> str:
+    def to_ldr(self, legacy_ids: bool = False, steps: list[list[int]] | None = None) -> str:
+        """LDraw text. Build steps are one per plate level, or `steps` (part ids per step, in
+        order) when given - e.g. the steps of the instruction PDFs, so programs that read
+        LDraw steps (BrickLink Studio) show the same steps."""
         lines = [
             f"0 {self.name}",
             f"0 Name: {safe_name(self.name)}.ldr",
@@ -751,18 +754,21 @@ class Model:
             f"0 // Exported {datetime.now():%Y-%m-%d %H:%M}",
         ]
         lines = [line for line in lines if line]
-        # One build step per plate level, bottom to top.
-        ordered = sorted(self.parts.values(), key=lambda p: (p.y, p.z, p.x))
-        last_y = None
-        for p in ordered:
-            if last_y is not None and p.y != last_y:
+        if steps:
+            groups = [[self.parts[i] for i in ids] for ids in steps]
+        else:                                    # one build step per plate level, bottom to top
+            by_level: dict[int, list] = {}
+            for p in sorted(self.parts.values(), key=lambda p: (p.y, p.z, p.x)):
+                by_level.setdefault(p.y, []).append(p)
+            groups = list(by_level.values())
+        for k, group in enumerate(groups):
+            if k:
                 lines.append("0 STEP")
-            last_y = p.y
-            g = self._geom[p.id]
-            m = g.matrix
-            nums = [*g.pos, *m.flatten()]
-            part = legacy_part_id(p.part) if legacy_ids else p.part
-            lines.append(f"1 {p.color} " + " ".join(_fmt(v) for v in nums) + f" {part}.dat")
+            for p in group:
+                g = self._geom[p.id]
+                nums = [*g.pos, *g.matrix.flatten()]
+                part = legacy_part_id(p.part) if legacy_ids else p.part
+                lines.append(f"1 {p.color} " + " ".join(_fmt(v) for v in nums) + f" {part}.dat")
         lines.append("0 STEP")
         return "\n".join(lines) + "\n"
 
