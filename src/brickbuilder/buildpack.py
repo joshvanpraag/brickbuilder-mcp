@@ -72,8 +72,10 @@ the PDF looks scrambled; that is how the pages land in order once folded.)
 
 
 def export(model, out_dir: Path, title: str | None = None, max_parts: int = 40, moc: bool = True,
-           story: str = "", theme: str = "Modular Buildings") -> dict:
-    """Write the build pack for `model` into out_dir. Returns the paths and counts."""
+           story: str = "", theme: str = "Modular Buildings", tags: list[str] | None = None,
+           category: str | None = None) -> dict:
+    """Write the build pack for `model` into out_dir. Returns the paths and counts.
+    tags/category: for the BrickLink Studio Gallery form (up to 10 tags)."""
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     name = model.name
@@ -111,7 +113,8 @@ def export(model, out_dir: Path, title: str | None = None, max_parts: int = 40, 
     if moc:                                  # pictures, Studio Gallery and Rebrickable guides
         kit = moc_kit(model, out, title, story, theme)
         files["moc_guide"] = kit["guide"]
-        files["studio_guide"] = studio_kit(model, out, title, story, kit["names"], info["steps"])
+        files["studio_guide"] = studio_kit(model, out, title, story, kit["names"], info["steps"],
+                                           tags=tags, category=category)
     return {"files": files, "steps": info["steps"], "pages": info["pages"], "sheets": info["sheets"],
             "problems": problems}
 
@@ -219,59 +222,87 @@ def moc_kit(model, out_dir: Path, title: str, story: str = "", theme: str = "Mod
 
 STUDIO_GUIDE = """# {title}: sharing it in the BrickLink Studio Gallery
 
-BrickLink's help: https://studiohelp.bricklink.com/hc/en-us/articles/5705165651095 (uploading)
-and https://studiohelp.bricklink.com/hc/en-us/articles/5705436653847 (publishing).
+`{name}.io` is the model as a Studio file. It carries the same {steps} steps as the PDF
+instructions, so the Gallery's "View Instructions" matches the booklet. (It opens in Studio
+as it is; if it ever won't, import `{name}.ldr` in Studio and save it as `.io`.)
 
-`{name}.ldr` carries the same {steps} steps as the PDF instructions, so the Gallery's
-"View Instructions" matches the booklet.
+Start at bricklink.com > **My Studio** > upload a design (logged in). The form has three steps.
 
-## 1. Open the model in Studio
+## Step 1 of 3 - Upload Studio file
 
-1. Install BrickLink Studio (free, Windows or Mac) from bricklink.com and log in with your
-   BrickLink account.
-2. Open `{name}.io` (double-click it, or **File > Open** in Studio). It is already a Studio
-   file, with the same steps as the PDFs. (If it ever won't open, **File > Import** the
-   `{name}.ldr` instead and **File > Save As** `{name}.io`.)
-3. If Studio flags a few parts, they are the same parts under Studio's own numbers: accept
-   its suggestion, then **File > Save**.
+Upload `{name}.io` from this folder.
 
-## 2. Upload it
+## Step 2 of 3 - Select sharing option
 
-1. In Studio, open **My Studio** and click **Upload** (top right). Name it "{title}".
-2. Upload it to **Unpublished** first, so you can add the details before anyone sees it.
-
-## 3. Add the details (on bricklink.com, My Studio > your design)
-
-- **Description:** copy everything between the two lines below.
-
----
-
-{description}
-
----
-
-- **Images:** the pictures in `showcase_pictures/`, `1_main.png` first:
-{images}
-
-## 4. Choose who sees what, and publish
-
-- **Full Access:** shown in the Gallery with the instructions and parts list; you choose
-  whether people can download the file. BrickLink reviews Full Access designs by hand; until
-  then the design shows in **Display** mode (pictures only).
+- **Full Access** (recommended): shown in the Gallery with the instructions and parts list;
+  you choose whether people can download the file. BrickLink reviews Full Access designs by
+  hand; until then it shows in Display mode (pictures only).
 - **Display:** pictures only, no instructions, parts list or download.
 - **Private:** only you.
 
-Publish, then copy the design's Gallery link to share. The Gallery cannot hold our PDFs, so
-send `{name}_instructions_phone.pdf` and `{name}_instructions_booklet.pdf` along with the
-link for anyone who wants the printable booklet.
+## Step 3 of 3 - Enter design details
+
+| Field | What to put |
+|---|---|
+| **Design name** (64 characters max) | `{title}` |
+| **Category** | {category} |
+| **Tags** (up to 10; press Enter after each) | {tags} |
+| **Featured images** (up to 10, 4:3, 2 MB max) | the pictures in `studio_pictures/`, in this order (the first is the thumbnail): {images} |
+| **Artistic statement** | copy the text between the two lines below |
+
+---
+
+{statement}
+
+---
+
+**Add more details (optional)**: click **Add description** and paste this:
+
+---
+
+{extra}
+
+---
+
+Then **Preview**, and **Publish** (or **Save for later**). Copy the design's Gallery link
+to share. The Gallery cannot hold our PDFs, so send `{name}_instructions_phone.pdf` and
+`{name}_instructions_booklet.pdf` along with the link for anyone who wants them.
 """
 
+STUDIO_EXTRA = """Build it yourself
+- Instructions: {steps} steps, the same as the printable booklet (Full Access shows them here as "View Instructions").
+- Parts: {parts} parts in {lines} part/colour lines, all in common colours. Use the parts list on this page to buy them through BrickLink.
+- A printable booklet (letter paper, fold in half) and a phone/tablet PDF of the instructions are available from the designer."""
 
-def studio_kit(model, out_dir: Path, title: str, story: str, picture_names: list[str], steps: int) -> str:
-    """STUDIO_GALLERY.md: the steps to put the model in the BrickLink Studio Gallery."""
+
+def studio_kit(model, out_dir: Path, title: str, story: str, picture_names: list[str] | None, steps: int,
+               tags: list[str] | None = None, category: str | None = None, size: int = 1200) -> str:
+    """STUDIO_GALLERY.md, walking through BrickLink's three-step upload form field by field,
+    with 4:3 pictures under 2 MB (the Gallery's shape and size limit) in studio_pictures/."""
+    out = Path(out_dir)
+    pics = out / "studio_pictures"
+    pics.mkdir(parents=True, exist_ok=True)
+    scene = instructions._scene(model)
+    sub = instructions._subset(scene, list(model.parts))
+    from . import render
+    names = []
+    for fname, az, el in MOC_VIEWS:
+        img = render.render_real_view(sub, az, el, size, size * 3 // 4)        # 4:3
+        p = pics / f"{fname}.png"
+        img.save(p, optimize=True)
+        if p.stat().st_size > 2_000_000:                                      # the Gallery's limit
+            p.unlink()
+            p = pics / f"{fname}.jpg"
+            img.save(p, quality=90)
+        names.append(p.name)
     text, _ = describe(model, title, story)
-    guide = Path(out_dir) / "STUDIO_GALLERY.md"
+    lines = len({(p.part, p.color) for p in model.parts.values()})
+    tags = (tags or [title, "building", "architecture"])[:10]
+    guide = out / "STUDIO_GALLERY.md"
     guide.write_text(STUDIO_GUIDE.format(
-        title=title, name=model.name, steps=steps, description=text,
-        images="\n".join(f"  - `showcase_pictures/{n}`" for n in picture_names)), encoding="utf-8")
+        title=title[:64], name=model.name, steps=steps, statement=text,
+        category=category or "the closest match to buildings or architecture in the list",
+        tags=", ".join(f"`{t}`" for t in tags),
+        images=" ".join(f"`{n}`" for n in names),
+        extra=STUDIO_EXTRA.format(steps=steps, parts=len(model.parts), lines=lines)), encoding="utf-8")
     return str(guide)

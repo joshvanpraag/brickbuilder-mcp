@@ -93,6 +93,12 @@ def test_build_pack():
         assert ldr.count("0 STEP") == info["steps"]
         assert ldr.count("\n1 ") == len(m.parts)
         assert f"same {info['steps']} steps" in Path(d, "STUDIO_GALLERY.md").read_text(encoding="utf-8")
+        studio_pics = sorted(Path(d, "studio_pictures").iterdir())
+        assert len(studio_pics) == len(buildpack.MOC_VIEWS)
+        for pic in studio_pics:                                   # the Gallery's 4:3 and 2 MB limits
+            assert pic.stat().st_size <= 2_000_000
+            with Image.open(pic) as im:
+                assert im.width * 3 == im.height * 4
 
 
 def test_studio_io():
