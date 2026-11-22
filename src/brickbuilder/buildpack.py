@@ -16,6 +16,7 @@
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from . import bricklink, instructions, rebrickable
@@ -252,7 +253,12 @@ should show the model step by step.
 | **Category** | {category} |
 | **Tags** (up to 10) | see **Tags** below: one at a time |
 | **Featured images** (up to 10, 4:3, 2 MB max) | the pictures in `studio_pictures/`, in this order (the first is the thumbnail): {images} |
-| **Artistic statement** | copy the text between the two lines below |
+| **Artistic statement** | copy the text between the two lines below (it has no web links: the Gallery does not allow links to other sites, and removes designs that have them) |
+
+**Before you paste:** the Gallery's rules (BrickLink Designer Terms, Section 3) forbid links to
+other sites and using brand, company or organisation names, trademarks or LEGO set numbers in
+the name, description or tags to draw attention. Describe what the model shows in your own
+words, and keep it family friendly.
 
 **Tags**: the tags box only makes a tag when you press Enter, so pasting a whole list does
 not work. Copy one line, paste it into the box, press **Enter**, and repeat:
@@ -284,6 +290,16 @@ STUDIO_EXTRA = """Build it yourself
 - A printable booklet (letter paper, fold in half) and a phone/tablet PDF of the instructions are available from the designer."""
 
 
+_URL = re.compile(r"\s*(?:[A-Z][\w ]{0,30}:\s*)?(?:https?://|www\.)\S+")
+
+
+def without_links(text: str) -> str:
+    """The text with web links taken out (and a short label before one, such as "Website:").
+    BrickLink's Studio Gallery does not allow links to other sites (Designer Terms of Service,
+    Section 3): a design whose description carried one was reported and made private."""
+    return "\n".join(_URL.sub("", ln).rstrip() for ln in text.splitlines())
+
+
 def studio_kit(model, out_dir: Path, title: str, story: str, picture_names: list[str] | None, steps: int,
                tags: list[str] | None = None, category: str | None = None, size: int = 1200) -> str:
     """STUDIO_GALLERY.md, walking through BrickLink's three-step upload form field by field,
@@ -305,6 +321,7 @@ def studio_kit(model, out_dir: Path, title: str, story: str, picture_names: list
             img.save(p, quality=90)
         names.append(p.name)
     text, _ = describe(model, title, story)
+    text = without_links(text)                    # the Gallery forbids links to other sites
     lines = len({(p.part, p.color) for p in model.parts.values()})
     tags = (tags or [title, "building", "architecture"])[:10]
     colours = sorted({rebrickable.colour_name(p.color) if rebrickable.available() else str(p.color)

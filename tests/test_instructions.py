@@ -105,6 +105,18 @@ def test_build_pack():
                 assert im.width * 3 == im.height * 4
 
 
+def test_gallery_text_has_no_links():
+    # BrickLink's Gallery made a design private for a link in its description
+    from brickbuilder import buildpack
+    out = buildpack.without_links('A school. Its motto is "Work Hard." School website: https://example.org/\n- 10 parts')
+    assert "http" not in out and "website" not in out.lower()
+    assert out.startswith('A school. Its motto is "Work Hard."') and out.endswith("- 10 parts")
+    m = small_model()
+    with tempfile.TemporaryDirectory() as d:
+        buildpack.export(m, Path(d), "Test Model", max_parts=4, story="A model. See www.example.org")
+        assert "example.org" not in Path(d, "STUDIO_GALLERY.md").read_text(encoding="utf-8")
+
+
 def test_studio_io():
     import json
     import zipfile
@@ -151,6 +163,6 @@ def test_studio_io():
 if __name__ == "__main__":
     for t in (test_steps_cover_every_part_once_bottom_to_top, test_booklet_places_every_page_once,
               test_bricklink_wanted_list, test_bricklink_part_numbers, test_pdfs_are_written,
-              test_build_pack, test_studio_io):
+              test_build_pack, test_gallery_text_has_no_links, test_studio_io):
         t()
         print("ok", t.__name__)
